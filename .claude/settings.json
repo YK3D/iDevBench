@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "midstream": {
+      "source": { "source": "github", "repo": "YK3D/midstream" }
+    }
+  },
+  "enabledPlugins": {
+    "midstream@midstream": true
+  }
+}
