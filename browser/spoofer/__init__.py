@@ -1,4 +1,4 @@
-"""Location Spoofer, browser edition - a local map app that drives pymobiledevice3.
+"""iDevBench (formerly Location Spoofer), browser edition - a local map app that drives pymobiledevice3.
 
 Copyright (c) 2026 YK3D. Licensed under the GNU GPL v3 or later with additional
 attribution terms (section 7): see browser/LICENSE and browser/NOTICE.

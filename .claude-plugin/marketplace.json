@@ -1,0 +1,14 @@
+{
+  "name": "idevbench",
+  "description": "iDevBench: use a real iPhone from Claude",
+  "owner": {
+    "name": "YK3D"
+  },
+  "plugins": [
+    {
+      "name": "idevbench",
+      "source": "./plugins/idevbench",
+      "description": "See and control an iPhone's screen and set its GPS location through the iDevBench app."
+    }
+  ]
+}

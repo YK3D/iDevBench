@@ -150,8 +150,8 @@ jobs:
           BR_SHA=$(cut -d' ' -f1 dist/browser/LocationSpooferBrowser.exe.sha256)
           render browser "$BROWSER_VERSION$LABEL" "$BR_SHA" > notes-browser.md
           gh release create "browser-v$BROWSER_VERSION$SUFFIX" dist/browser/LocationSpooferBrowser.exe dist/browser/LocationSpooferBrowser.exe.sha256 \
-            --title "Location Spoofer Browser Edition $BROWSER_VERSION$LABEL" --notes-file notes-browser.md --target "$GITHUB_SHA" $FLAGS_BR
+            --title "iDevBench Browser Edition $BROWSER_VERSION$LABEL" --notes-file notes-browser.md --target "$GITHUB_SHA" $FLAGS_BR
           SA_SHA=$(cut -d' ' -f1 dist/standalone/LocationSpooferStandalone.exe.sha256)
           render standalone "$STANDALONE_VERSION$LABEL" "$SA_SHA" > notes-standalone.md
           gh release create "standalone-v$STANDALONE_VERSION$SUFFIX" dist/standalone/LocationSpooferStandalone.exe dist/standalone/LocationSpooferStandalone.exe.sha256 \
-            --title "Location Spoofer Standalone $STANDALONE_VERSION$LABEL" --notes-file notes-standalone.md --target "$GITHUB_SHA" $FLAGS_SA
+            --title "iDevBench $STANDALONE_VERSION$LABEL" --notes-file notes-standalone.md --target "$GITHUB_SHA" $FLAGS_SA

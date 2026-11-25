@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# iPhone Location Spoofer - macOS / Linux launcher
+# iDevBench Browser Edition - macOS / Linux launcher
 set -e
 cd "$(dirname "$0")"
 PY="${PYTHON:-python3}"

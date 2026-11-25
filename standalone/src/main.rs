@@ -1,4 +1,4 @@
-//! Location Spoofer — standalone desktop app.
+//! iDevBench (formerly Location Spoofer) — standalone desktop app.
 //! Copyright (c) 2026 YK3D. All rights reserved. Licensed under the Location Spoofer License (LICENSE).
 //!
 //! A local HTTP server (axum) serves the UI and its JSON API on 127.0.0.1; a native window
@@ -12,6 +12,7 @@ mod feature_tests;
 mod geo;
 mod gmaps_links;
 mod gpx;
+mod screen;
 mod offline;
 mod player;
 mod profile;
@@ -56,6 +57,46 @@ fn parse_args() -> Args {
     a
 }
 
+/// `--mcp`: for AI apps that start MCP servers as programs (Claude Desktop and others). Passes
+/// each message from stdin to the running app's /mcp and prints the answer; the app must be open.
+fn mcp_bridge(port: Option<u16>) {
+    use std::io::{BufRead, Write};
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
+    let client = reqwest::Client::builder().no_proxy().build().expect("http client");
+    // The standalone app's port, then the browser edition's.
+    let urls: Vec<String> = match port {
+        Some(p) => vec![format!("http://127.0.0.1:{p}/mcp")],
+        None => vec![format!("http://127.0.0.1:{DEFAULT_PORT}/mcp"), "http://127.0.0.1:8765/mcp".into()],
+    };
+    let mut out = std::io::stdout();
+    for line in std::io::stdin().lock().lines() {
+        let Ok(line) = line else { break };
+        if line.trim().is_empty() {
+            continue;
+        }
+        let answer = rt.block_on(async {
+            for url in &urls {
+                let sent = client.post(url).header("Content-Type", "application/json").header("Accept", "application/json, text/event-stream");
+                if let Ok(r) = sent.body(line.clone()).send().await {
+                    return Some(r.text().await.unwrap_or_default());
+                }
+            }
+            None
+        });
+        let text = match answer {
+            Some(t) => t,
+            None => match serde_json::from_str::<serde_json::Value>(&line).ok().and_then(|m| m.get("id").cloned()) {
+                Some(id) => serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": "iDevBench is not running. Open it, then try again."}}).to_string(),
+                None => String::new(),
+            },
+        };
+        if !text.trim().is_empty() {
+            let _ = writeln!(out, "{}", text.trim());
+            let _ = out.flush();
+        }
+    }
+}
+
 fn wait_for_pid_exit(pid: u32) {
     // The old process frees the port and its file lock when it exits; give it up to 30 s.
     for _ in 0..150 {
@@ -72,6 +113,9 @@ fn main() {
     if args.version {
         println!("{}", updater::current_version());
         return;
+    }
+    if args.raw.iter().any(|a| a == "--mcp") {
+        return mcp_bridge(args.raw.iter().any(|a| a == "--port").then_some(args.port));
     }
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,idevice=warn".into()))
@@ -132,20 +176,20 @@ fn main() {
             None => start_server(&rt, bind(0).expect("bind"), upd),
         },
     };
-    tracing::info!("Location Spoofer running at {url}");
+    tracing::info!("iDevBench running at {url}");
 
     #[cfg(feature = "gui")]
     if !args.no_window {
         let restart = server_task.clone();
         let title = match args.feature_test {
-            Some(pr) => format!("Location Spoofer · feature test #{pr}"),
-            None => "Location Spoofer".to_string(),
+            Some(pr) => format!("iDevBench · feature test #{pr}"),
+            None => "iDevBench".to_string(),
         };
         gui::run(url, title, restart, args.raw.clone(), rt);
         return;
     }
     let _ = open::that(&url);
-    println!("Location Spoofer is running at {url} — press Ctrl+C to quit.");
+    println!("iDevBench is running at {url} — press Ctrl+C to quit.");
     rt.block_on(async {
         match server_task {
             Some(app) => {
@@ -189,7 +233,7 @@ fn start_server(rt: &tokio::runtime::Runtime, listener: tokio::net::TcpListener,
     (format!("http://{addr}/"), Some(app))
 }
 
-/// The version of the Location Spoofer already listening at `url`, if it is one.
+/// The version of iDevBench already listening at `url`, if it is one.
 async fn running_version(url: &str) -> Option<String> {
     let r = reqwest::Client::new().get(format!("{url}api/status")).timeout(std::time::Duration::from_secs(2)).send().await.ok()?;
     let v: serde_json::Value = r.json().await.ok()?;
@@ -230,7 +274,7 @@ async fn self_test() -> i32 {
     checks.push(("sea network", routing::sea_route((49.49, 0.10), (50.9, 1.8)).map(|r| r.len() > 2).unwrap_or(false)));
     checks.push(("Google link parser", gmaps_links::parse("https://www.google.com/maps/@40.7,-74.0,15z").is_ok()));
     let ok = checks.iter().all(|c| c.1);
-    println!("Location Spoofer (standalone) {} self-test", updater::current_version());
+    println!("iDevBench (standalone) {} self-test", updater::current_version());
     for (n, v) in &checks {
         println!("  {} {n}", if *v { "OK  " } else { "FAIL" });
     }

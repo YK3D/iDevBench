@@ -1,6 +1,6 @@
 # Third-party notices
 
-Location Spoofer is built on open-source software and public data services. This file lists what is included in each edition, under which licence, and which online services the app uses at run time.
+iDevBench (formerly Location Spoofer) is built on open-source software and public data services. This file lists what is included in each edition, under which licence, and which online services the app uses at run time.
 
 ## Licences of this project
 
@@ -24,7 +24,8 @@ The licences below belong to the third-party components and are not changed by t
 
 | Component | Use | Licence |
 |---|---|---|
-| [idevice](https://github.com/jkcoxson/idevice), [jktcp](https://crates.io/crates/jktcp) | iPhone communication (usbmuxd, lockdown, CoreDevice tunnel, DVT) | MIT |
+| [idevice](https://github.com/jkcoxson/idevice), [jktcp](https://crates.io/crates/jktcp) | iPhone communication (usbmuxd, lockdown, CoreDevice tunnel, DVT, screen streaming and touch input) | MIT |
+| [Fraunhofer FDK AAC](https://github.com/mstorsjo/fdk-aac) through [fdk-aac-rs](https://github.com/haileys/fdk-aac-rs) | Plays the iPhone's sound while mirroring (AAC-ELD decoding) | FDK AAC licence, full text in [docs/licenses/fdk-aac.txt](docs/licenses/fdk-aac.txt) (the Rust bindings are MIT). Included unmodified; its complete source code is available free of charge from [crates.io](https://crates.io/crates/fdk-aac-sys/0.5.0) and [GitHub](https://github.com/mstorsjo/fdk-aac). The licence grants no patent rights |
 | [wry](https://github.com/tauri-apps/wry), [tao](https://github.com/tauri-apps/tao) | Native window and Microsoft WebView2 | Apache-2.0 OR MIT |
 | [axum](https://github.com/tokio-rs/axum), [tokio](https://tokio.rs/), [reqwest](https://github.com/seanmonstar/reqwest), [rustls](https://github.com/rustls/rustls), [ring](https://github.com/briansmith/ring) | Local server, networking, TLS | MIT / Apache-2.0 / ISC-style (ring) |
 | [cssparser](https://github.com/servo/rust-cssparser), [selectors](https://github.com/servo/stylo), [dtoa-short](https://github.com/upsuper/dtoa-short), [option-ext](https://github.com/soc/option-ext) | Used by the window and settings-folder libraries | MPL-2.0. Included unmodified; their source code is available from [crates.io](https://crates.io/) at the versions listed in `standalone/Cargo.lock` |

@@ -1,4 +1,4 @@
-/* Location Spoofer — UI shared by the standalone and browser apps. Talks to the local server at /api.
+/* iDevBench — UI shared by the standalone and browser apps. Talks to the local server at /api.
    Copyright (c) 2026 YK3D. All rights reserved. Licensed under the Location Spoofer License (LICENSE). */
 "use strict";
 
@@ -863,6 +863,7 @@ $("btn-show-sidebar").onclick = () => setSidebarHidden(false);
 
 // ------------------------------------------------------------------ tabs
 function openTab(name) {
+  setMode("location");
   state.tab = name;
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
   document.querySelectorAll(".tab-panel").forEach((p) => (p.hidden = p.id !== `tab-${name}`));
@@ -879,6 +880,7 @@ async function refreshDevices(userAsked = false) {
   state.devicesError = null;
   try {
     const { devices } = await api(`/api/devices?driver=${driver}`);
+    state.devices = devices;
     for (const d of devices) {
       const label = `${d.name || "iPhone"}${d.ios_version ? ` (iOS ${d.ios_version})` : ""} — ${d.connection || ""}${d.error ? " (needs attention)" : ""}`;
       sel.append(el("option", { value: d.udid, textContent: label, title: d.error || d.udid }));
@@ -890,6 +892,7 @@ async function refreshDevices(userAsked = false) {
     if (userAsked) toast(e.message, true);
   }
   if (state.status) renderDevice(state.status);
+  renderMirrorDevice();
 }
 $("btn-refresh").onclick = () => refreshDevices(true);
 $("driver").onchange = () => { refreshDevices(false); saveSettingsSoon(); };
@@ -898,7 +901,7 @@ async function connectNow() {
   $("device-status").className = "status";
   $("device-status").textContent = "Connecting… (iOS 17+ can take up to 30 s)";
   try {
-    const { device } = await api("/api/connect", { body: { driver: $("driver").value, udid: $("device-select").value || null } });
+    const { device } = await api("/api/connect", { body: { driver: $("driver").value, udid: $("device-select").value || null, connection: $("conn-via").value } });
     toast(`Connected to ${device.name}`);
     for (const n of device.notes || []) toast(n);
     return device;
@@ -912,6 +915,64 @@ $("btn-disconnect").onclick = guard(disconnectNow);
 async function revealDevMode() { toast((await api("/api/device/reveal-developer-mode", { body: {} })).message); }
 $("btn-reveal").onclick = busy($("btn-reveal"), "Asking the iPhone…", revealDevMode);
 $("btn-mount").onclick = busy($("btn-mount"), "Mounting…", async () => toast((await api("/api/device/mount", { body: {} })).message));
+$("btn-wifi").onclick = busy($("btn-wifi"), "Asking the iPhone…", async () => {
+  toast((await api("/api/device/wifi", { body: { udid: (state.status && state.status.device && state.status.device.udid) || $("device-select").value || null } })).message);
+  refreshDevices(false);
+});
+
+// ---- more iPhones at once: extra phones follow the main one (see mirrors.py / device/mirror.rs)
+const lostMirrorsToasted = new Set();
+async function addMirror() {
+  const udid = $("mirror-select").value;
+  if (!udid) { toast("Plug in or connect another iPhone, press the refresh button next to Device, then pick it here.", true); return; }
+  const { mirror } = await api("/api/mirrors", { body: { udid, connection: $("conn-via").value } });
+  toast(`${mirror.name} now follows ${state.status.device.name}`);
+  for (const n of mirror.notes || []) toast(n);
+  await poll();
+}
+$("btn-mirror-add").onclick = busy($("btn-mirror-add"), "Connecting…", addMirror);
+async function removeMirror(m) {
+  await api(`/api/mirrors/${encodeURIComponent(m.udid)}`, { method: "DELETE" });
+  toast(`${m.name} no longer follows and is back on its real location`);
+  lostMirrorsToasted.delete(m.udid);
+  await poll();
+}
+function renderMirrors(st) {
+  const box = $("mirrors");
+  const on = !!(st.device && st.live && st.features && st.features.multi_device);
+  box.hidden = !on;
+  if (!on) return;
+  const mirrors = st.mirrors || [];
+  const listKey = JSON.stringify(mirrors.map((m) => [m.udid, m.state, m.error]));
+  if (box.dataset.list !== listKey) {
+    box.dataset.list = listKey;
+    $("mirror-list").replaceChildren(...mirrors.map((m) => {
+      const lost = m.state === "lost";
+      const line = el("div", { class: `status ${lost ? "err" : "ok"}`, title: m.error || m.transport || "" },
+        el("span", { textContent: `${m.name}${m.ios_version ? ` · iOS ${m.ios_version}` : ""}${m.connection && m.connection !== "Simulated" ? ` · ${m.connection}` : ""}${lost ? ` · ${m.error}` : ""}` }));
+      const rm = el("button", { type: "button", textContent: "Remove", title: "Stop following and send this iPhone back to its real location" });
+      rm.onclick = busy(rm, "Removing…", () => removeMirror(m));
+      return el("li", {}, line, rm);
+    }));
+    for (const m of mirrors) {
+      if (m.state === "lost" && !lostMirrorsToasted.has(m.udid)) { lostMirrorsToasted.add(m.udid); toast(`${m.name} stopped following: ${m.error}`, true); }
+    }
+  }
+  // phones that can still be added: found in the last device scan, not the main one, not following yet
+  const taken = new Set([st.device.udid, ...mirrors.map((m) => m.udid)]);
+  const free = (state.devices || []).filter((d) => !taken.has(d.udid));
+  const optKey = JSON.stringify(free.map((d) => [d.udid, d.connection]));
+  const sel = $("mirror-select");
+  if (sel.dataset.opts !== optKey) {
+    sel.dataset.opts = optKey;
+    const keep = sel.value;
+    sel.replaceChildren(...(free.length
+      ? free.map((d) => el("option", { value: d.udid, textContent: `${d.name || "iPhone"}${d.ios_version ? ` (iOS ${d.ios_version})` : ""} — ${d.connection || ""}`, title: d.error || d.udid }))
+      : [el("option", { value: "", textContent: "No other iPhone found" })]));
+    if (keep && free.some((d) => d.udid === keep)) sel.value = keep;
+  }
+  $("btn-mirror-add").disabled = !free.length;
+}
 
 async function stopSpoofing() {
   await api("/api/location/clear", { body: {} });
@@ -927,12 +988,14 @@ function renderDevice(st) {
   const box = $("device-status"), chip = $("conn-chip");
   $("btn-connect").hidden = !!d;
   $("btn-disconnect").hidden = !d;
+  renderMirrors(st);
   if (d) {
+    const extra = (st.mirrors || []).length;
     box.className = "status ok";
-    box.textContent = `${d.name}${d.ios_version ? ` · iOS ${d.ios_version}` : ""} · ${d.transport}`;
+    box.textContent = `${d.name}${d.ios_version ? ` · iOS ${d.ios_version}` : ""}${d.connection && d.connection !== "Simulated" ? ` · ${d.connection}` : ""} · ${d.transport}`;
     $("driver").value = st.driver;
-    chip.className = "chip ok"; chip.textContent = d.name;
-    $("dev-summary").textContent = `Connected · ${d.name}`;
+    chip.className = "chip ok"; chip.textContent = extra ? `${d.name} + ${extra}` : d.name;
+    $("dev-summary").textContent = `Connected · ${d.name}${extra ? ` + ${extra} more` : ""}`;
   } else if (state.devicesError && $("driver").value !== "mock") {
     box.className = "status warn";
     // Rebuilt only when the message changes, so the link isn't replaced under the mouse every poll.
@@ -2560,7 +2623,7 @@ function keyVector() {
 }
 const typing = () => ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName) || !!document.querySelector("dialog[open]");
 function joystickKeydown(e) {
-  if (state.tab !== "joystick" || !KEYS[e.code] || typing()) return false;
+  if (state.tab !== "joystick" || document.body.classList.contains("mode-screen") || !KEYS[e.code] || typing()) return false;
   e.preventDefault();
   if (!held.has(e.code)) {
     held.add(e.code);
@@ -2609,6 +2672,7 @@ const ACTIONS = [
   ["tab-gpx", "3", "GPX tab", () => openTab("gpx")],
   ["tab-joystick", "4", "Joystick tab", () => openTab("joystick")],
   ["tab-saved", "5", "Saved tab", () => openTab("saved")],
+  ["screen", "6", "Mirroring section", () => setMode("screen")],
 ];
 const actionById = Object.fromEntries(ACTIONS.map((a) => [a[0], a]));
 function shortcutMap() {
@@ -2704,7 +2768,7 @@ function saveSettingsSoon() {
     await saveStore();
   }), 700);
 }
-const SETTING_IDS = ["driver", "provider", "default-mode", "default-speed", "accel", "decel", "alt-count", "start-rest", "stop-end",
+const SETTING_IDS = ["driver", "conn-via", "provider", "default-mode", "default-speed", "accel", "decel", "alt-count", "start-rest", "stop-end",
   "road-aware", "road-data", "corner-slow", "match-eta", "speed-factor", "multiplier", "loop", "jitter", "tick", "laps", "joy-speed", "gpx-speed"];
 function collectSettings() {
   const s = {};
@@ -2723,6 +2787,7 @@ function applySettings(s) {
   $("google-key").value = s.google_api_key || "";
   $("pref-compact").checked = !!s.compact;
   $("pref-channel").value = s.update_channel === "dev" ? "dev" : "stable";
+  renderCaptureFolder();
   if (s.sidebar_w) setSidebarWidth(s.sidebar_w, false);
   applyAppearance();
   applySections();
@@ -2798,7 +2863,7 @@ $("btn-export-data").onclick = () => {
   const data = { ...state.store, settings: { ...settings() } };
   delete data.settings.google_api_key; // never put the API key in a backup file
   const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
-  const a = el("a", { href: URL.createObjectURL(blob), download: "location-spoofer-backup.json" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: "idevbench-backup.json" });
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
@@ -2858,6 +2923,7 @@ function openSettings(pane = "appearance") {
     if (pane === "keys") renderShortcutEditor();
   });
   if (pane === "offline") { pollOffline().catch((e) => toast(e.message, true)); updateOfflineEstimate(); }
+  if (pane === "agents") renderAgentSetup().catch((e) => toast(e.message, true));
   if (!settingsDlg.open) settingsDlg.showModal();
 }
 document.querySelectorAll("#settings-tabs button").forEach((b) => (b.onclick = () => openSettings(b.dataset.pane)));
@@ -2892,7 +2958,7 @@ async function refreshGoogleStatus() {
 }
 
 // ------------------------------------------------------------------ first-run tutorial
-const SITE = "https://iphone-spoofer.vercel.app"; // the website hosts the Terms, Privacy Policy and licences
+const SITE = "https://idevbench.vercel.app"; // the website hosts the Terms, Privacy Policy and licences
 const TUTORIAL = [
   { title: "Welcome", body: [
       "This app sets your iPhone's location from this computer over a USB cable: jump to any place, follow routes at realistic speeds, or replay GPX files.",
@@ -3180,7 +3246,7 @@ async function poll() {
     const st = await api("/api/status");
     state.status = st;
     $("version").textContent = `v${st.version}${st.app === "standalone" ? "" : " · browser"}${st.feature_test ? ` · feature test #${st.feature_test}` : ""}`;
-    document.querySelector(".brand h1").title = `Location Spoofer ${$("version").textContent}`;
+    document.querySelector(".brand h1").title = `iDevBench ${$("version").textContent}`;
     $("about-version").textContent = `Version ${st.version} (${st.app === "standalone" ? "standalone app" : "browser version"})`;
     if (!state.bootVersion) { state.bootVersion = st.version; applyFeatures(st.features); }
     renderUpdate(st);
@@ -3220,6 +3286,528 @@ document.addEventListener("pointerdown", (e) => {
   setTimeout(done, 1200); // in case the animation never runs (hidden button)
 }, { passive: true });
 
+// ------------------------------------------------------------------ screen mirroring
+// The server sends the phone's screen as HEVC frames (decoded here with WebCodecs) and its sound as
+// PCM over /api/screen/ws; touches and keys go back as JSON. Message layout: see standalone/src/screen.
+const mirror = { ws: null, decoder: null, config: null, supported: {}, status: { state: "off" }, audio: null, nextAudio: 0,
+  recorder: null, down: false, turn: 0, lastKeyAsk: 0, errors: 0, wheel: null, pinch: null, stats: null, perf: null,
+  frame: null, drawQueued: false, pending: new Map() };
+// KeyboardEvent.code -> HID keyboard usage. Ctrl is sent as the iPhone's Command key.
+const HID_KEYS = (() => {
+  const m = { Enter: 40, NumpadEnter: 40, Escape: 41, Backspace: 42, Tab: 43, Space: 44, Minus: 45, Equal: 46, BracketLeft: 47,
+    BracketRight: 48, Backslash: 49, Semicolon: 51, Quote: 52, Backquote: 53, Comma: 54, Period: 55, Slash: 56, CapsLock: 57,
+    Home: 74, PageUp: 75, Delete: 76, End: 77, PageDown: 78, ArrowRight: 79, ArrowLeft: 80, ArrowDown: 81, ArrowUp: 82,
+    ControlLeft: 227, ShiftLeft: 225, AltLeft: 226, MetaLeft: 227, ControlRight: 231, ShiftRight: 229, AltRight: 230, MetaRight: 231 };
+  for (let i = 0; i < 26; i++) m[`Key${String.fromCharCode(65 + i)}`] = 4 + i;
+  for (let i = 1; i <= 9; i++) m[`Digit${i}`] = 29 + i;
+  m.Digit0 = 39;
+  return m;
+})();
+
+// Location or Mirroring: the two sections of the app. Mirroring hides the location tools and the map.
+function setMode(mode) {
+  const screen = mode === "screen";
+  document.querySelectorAll("#modes button").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  try { localStorage.setItem("ls-mode", mode); } catch (_) { /* storage blocked */ }
+  if (document.body.classList.contains("mode-screen") === screen) return;
+  document.body.classList.toggle("mode-screen", screen);
+  $("mirror-view").hidden = !screen;
+  $("screen-panel").hidden = !screen;
+  if (screen) fitMirror(); else requestAnimationFrame(() => map.invalidateSize());
+}
+document.querySelectorAll("#modes button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+
+function mirrorSend(msg) {
+  if (mirror.ws && mirror.ws.readyState === 1) mirror.ws.send(JSON.stringify(msg));
+}
+// Ask for a fresh full frame, at most once a second (the phone's encoder stalls if asked too often).
+function askKeyframe() {
+  const now = performance.now();
+  if (now - mirror.lastKeyAsk < 1000) return;
+  mirror.lastKeyAsk = now;
+  mirrorSend({ t: "keyframe" });
+}
+// The phone's name and iOS version above it: from the mirroring session, else the chosen device.
+function renderMirrorDevice() {
+  let name = mirror.status.device_name, ios = mirror.status.ios;
+  if (!name) {
+    const udid = $("device-select").value;
+    const d = (state.devices || []).find((x) => !udid || x.udid === udid) || (state.status && state.status.device);
+    if (d) { name = d.name || "iPhone"; ios = d.ios_version; }
+  }
+  $("mirror-device").textContent = name ? `${name}${ios ? ` · iOS ${ios}` : ""}` : "No iPhone connected";
+}
+$("device-select").addEventListener("change", renderMirrorDevice);
+// The placeholder's home screen: a page of app icons and a dock.
+(() => {
+  const colours = ["#ff9f0a", "#30d158", "#0a84ff", "#ff375f", "#bf5af2", "#64d2ff", "#ffd60a", "#ff453a", "#5e5ce6", "#66d4cf", "#ac8e68", "#8e8e93"];
+  const icon = (i) => { const e = document.createElement("i"); e.style.setProperty("--c", colours[(i * 7) % colours.length]); return e; };
+  $("sk-grid").append(...Array.from({ length: 24 }, (_, i) => icon(i)));
+  $("sk-dock").append(...Array.from({ length: 4 }, (_, i) => icon(i + 3)));
+})();
+
+function renderMirror(s) {
+  const before = mirrorTurn();
+  if ((s.rotation || 0) !== (mirror.status.rotation || 0)) mirror.turn = 0; // the phone says which way it is now
+  mirror.status = s;
+  const on = s.state === "on", busy = s.state === "starting";
+  $("btn-mirror").textContent = on ? "Stop mirroring" : busy ? "Starting…" : "Start mirroring";
+  $("btn-mirror").classList.toggle("primary", !on);
+  $("btn-mirror").disabled = busy;
+  const box = $("mirror-status");
+  box.className = "status" + (on ? " ok" : s.state === "error" ? " warn" : "");
+  box.textContent = on
+    ? `Mirroring${s.width ? ` · ${s.width}×${s.height}` : ""}${s.audio ? " · with sound" : ""}${s.note ? `. ${s.note}` : ""}`
+    : s.state === "error" ? s.error : busy ? "Starting… (unlock the iPhone)" : "Not mirroring";
+  for (const b of $("mirror-tools").querySelectorAll("button")) b.disabled = !on && b.id !== "btn-mirror-stats";
+  $("mirror-empty").textContent = on && s.simulated ? "Simulator: there is no real screen. Clicks and keys are accepted and ignored."
+    : on ? "Waiting for the picture…" : s.state === "error" ? s.error : busy ? "Starting… Unlock the iPhone." : "Press Start mirroring to see the iPhone's screen here.";
+  if (mirrorTurn() !== before) turnPicture((mirrorTurn() - before + 360) % 360);
+  renderMirrorDevice();
+  if (on) mirrorOpen();
+  else if (!busy) mirrorClose();
+}
+
+// Clockwise degrees the picture is turned: the phone's own orientation plus the Rotate button.
+const mirrorTurn = () => ((mirror.status.rotation || 0) + mirror.turn) % 360;
+const mirrorCtx = () => $("mirror-canvas").getContext("2d", { alpha: false, desynchronized: true });
+function fitMirror() {
+  const c = $("mirror-canvas"), view = $("mirror-view");
+  if (!c.width || !c.height) return;
+  const tools = $("mirror-tools").getBoundingClientRect();
+  const wide = view.clientWidth > 760;
+  const w = view.clientWidth - 48 - (wide ? tools.width + 20 : 0), h = view.clientHeight - 48 - (wide ? 0 : tools.height + 10);
+  const k = Math.min(w / c.width, h / c.height);
+  c.style.width = `${Math.max(1, c.width * k)}px`;
+  c.style.height = `${Math.max(1, c.height * k)}px`;
+}
+new ResizeObserver(fitMirror).observe($("mirror-view"));
+
+// Draws `src` (w×h before turning) turned by `turn` degrees onto the canvas, resizing it if needed.
+function drawTurned(src, w, h, turn) {
+  const c = $("mirror-canvas"), side = turn % 180 !== 0;
+  const cw = side ? h : w, ch = side ? w : h;
+  if (c.width !== cw || c.height !== ch) {
+    c.width = cw;
+    c.height = ch;
+    fitMirror();
+  }
+  const ctx = mirrorCtx();
+  ctx.setTransform(...({ 90: [0, 1, -1, 0, cw, 0], 180: [-1, 0, 0, -1, cw, ch], 270: [0, -1, 1, 0, 0, ch] }[turn] || [1, 0, 0, 1, 0, 0]));
+  ctx.drawImage(src, 0, 0);
+}
+// Turn what is on screen now (a still screen sends no new frame).
+function turnPicture(delta) {
+  const c = $("mirror-canvas");
+  if (!c.width || !delta) return;
+  const copy = new OffscreenCanvas(c.width, c.height);
+  copy.getContext("2d").drawImage(c, 0, 0);
+  drawTurned(copy, copy.width, copy.height, delta);
+}
+// Only the newest frame is drawn, once per screen refresh; frames that came in between are skipped.
+function drawPending() {
+  mirror.drawQueued = false;
+  const f = mirror.frame;
+  mirror.frame = null;
+  if (!f) return;
+  drawTurned(f, f.displayWidth, f.displayHeight, mirrorTurn());
+  f.close();
+}
+
+// A new decoder for the current setup; the old one is dropped (also after a decoding error,
+// after which WebCodecs refuses further frames). Waits for a keyframe and asks for one.
+function mirrorMakeDecoder() {
+  if (mirror.decoder && mirror.decoder.state !== "closed") mirror.decoder.close();
+  mirror.decoder = null;
+  if (!mirror.config) return;
+  mirror.decoder = new VideoDecoder({
+    output: (frame) => {
+      mirror.errors = 0;
+      const st = mirror.stats, t = mirror.pending.get(frame.timestamp);
+      if (st) { st.frames++; if (t !== undefined) { st.decodeMs += performance.now() - t; st.decoded++; } }
+      mirror.pending.delete(frame.timestamp);
+      if (mirror.frame) mirror.frame.close();
+      mirror.frame = frame;
+      if (document.hidden) drawPending(); // no screen refreshes while hidden; keep recordings going
+      else if (!mirror.drawQueued) { mirror.drawQueued = true; requestAnimationFrame(drawPending); }
+    },
+    error: () => {
+      if (++mirror.errors > 3) {
+        $("mirror-empty").textContent = "The picture can't be decoded. Press Restart stream, or stop and start mirroring.";
+        return;
+      }
+      mirrorMakeDecoder();
+    },
+  });
+  mirror.decoder.configure(mirror.config);
+  mirror.waitKey = true;
+  mirror.lastKeyAsk = 0;
+  askKeyframe();
+}
+
+async function mirrorDecoder(view) {
+  const w = view.getUint16(1), h = view.getUint16(3), n = view.getUint8(5);
+  const codec = new TextDecoder().decode(new Uint8Array(view.buffer, 6, n));
+  const config = { codec, description: new Uint8Array(view.buffer, 6 + n).slice(), codedWidth: w, codedHeight: h, optimizeForLatency: true };
+  mirror.config = config;
+  if (mirror.decoder && mirror.decoder.state !== "closed") mirror.decoder.close();
+  mirror.decoder = null; // frames that come meanwhile are dropped; the new decoder asks for a keyframe
+  if (mirror.supported[codec] === undefined) {
+    mirror.supported[codec] = typeof VideoDecoder !== "undefined" && (await VideoDecoder.isConfigSupported(config)).supported;
+  }
+  if (!mirror.supported[codec]) {
+    $("mirror-empty").textContent = "This computer can't decode the iPhone's video (HEVC). Update the graphics driver, or install "
+      + "“HEVC Video Extensions” from the Microsoft Store, then start mirroring again.";
+    return;
+  }
+  if (mirror.config === config) mirrorMakeDecoder();
+}
+
+function mirrorAudio(view) {
+  const a = mirror.audio;
+  if (!a) return;
+  const pcm = new Int16Array(view.buffer.slice(9));
+  const n = pcm.length / 2;
+  const buf = a.ctx.createBuffer(2, n, 48000);
+  const l = buf.getChannelData(0), r = buf.getChannelData(1);
+  for (let i = 0; i < n; i++) { l[i] = pcm[2 * i] / 32768; r[i] = pcm[2 * i + 1] / 32768; }
+  const src = a.ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(a.out);
+  // A small cushion against network jitter; if playback fell behind, catch up instead of drifting.
+  const now = a.ctx.currentTime;
+  if (mirror.nextAudio < now || mirror.nextAudio > now + 0.3) mirror.nextAudio = now + 0.06;
+  src.start(mirror.nextAudio);
+  mirror.nextAudio += n / 48000;
+}
+
+function mirrorFrame(data, v) {
+  const st = mirror.stats;
+  if (st) st.bytes += data.byteLength;
+  const key = v.getUint8(1) === 1;
+  if (!mirror.decoder || mirror.decoder.state !== "configured") return;
+  if (mirror.waitKey && !key) { if (st) st.dropped++; askKeyframe(); return; }
+  // Behind by more than a few frames: drop until the next keyframe rather than lag further.
+  if (!key && mirror.decoder.decodeQueueSize > 6) { mirror.waitKey = true; if (st) st.dropped++; askKeyframe(); return; }
+  mirror.waitKey = false;
+  if (st && key) st.keys++;
+  const timestamp = Number(v.getBigUint64(2));
+  mirror.pending.set(timestamp, performance.now());
+  if (mirror.pending.size > 60) mirror.pending.clear();
+  try {
+    mirror.decoder.decode(new EncodedVideoChunk({ type: key ? "key" : "delta", timestamp, data: new Uint8Array(data, 10) }));
+  } catch (_) {
+    mirrorMakeDecoder(); // the decoder refused the chunk (closed after an error)
+  }
+}
+
+function mirrorOpen() {
+  if (mirror.ws) return;
+  const ws = new WebSocket(`ws://${location.host}/api/screen/ws`);
+  ws.binaryType = "arraybuffer";
+  mirror.ws = ws;
+  ws.onmessage = (e) => {
+    if (typeof e.data === "string") {
+      const m = JSON.parse(e.data);
+      if (m.type === "status") renderMirror(m.status);
+      else if (m.type === "error") toast(m.detail, true);
+      return;
+    }
+    const v = new DataView(e.data);
+    const kind = v.getUint8(0);
+    if (kind === 1) mirrorDecoder(v);
+    else if (kind === 3) mirrorAudio(v);
+    else if (kind === 2) mirrorFrame(e.data, v);
+  };
+  ws.onclose = () => { if (mirror.ws === ws) { mirror.ws = null; if (mirror.status.state === "on") setTimeout(mirrorOpen, 1000); } };
+}
+
+function mirrorClose() {
+  if (mirror.recorder) mirror.recorder.stop();
+  const ws = mirror.ws;
+  mirror.ws = null;
+  if (ws) ws.close();
+  if (mirror.decoder && mirror.decoder.state !== "closed") mirror.decoder.close();
+  mirror.decoder = mirror.config = mirror.perf = null;
+  if (mirror.frame) { mirror.frame.close(); mirror.frame = null; }
+  if (mirror.audio) { mirror.audio.ctx.close(); mirror.audio = null; }
+  const c = $("mirror-canvas");
+  c.removeAttribute("width");
+  c.removeAttribute("height");
+}
+
+$("btn-mirror").onclick = guard(async () => {
+  if (mirror.status.state === "on") { renderMirror(await api("/api/screen/stop", { body: {} })); return; }
+  const audio = $("mirror-audio").checked;
+  if (audio && !mirror.audio) {
+    // Created on the click: browsers only allow sound that starts from a user action.
+    const ctx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
+    const out = ctx.createGain();
+    const tap = ctx.createMediaStreamDestination(); // recordings take the sound from here
+    out.connect(ctx.destination);
+    out.connect(tap);
+    mirror.audio = { ctx, out, tap };
+  }
+  renderMirror({ state: "starting" });
+  try {
+    renderMirror(await api("/api/screen/start", { body: { driver: $("driver").value, udid: $("device-select").value || null, audio } }));
+  } catch (e) {
+    renderMirror({ state: "error", error: e.message });
+    throw e;
+  }
+});
+
+// ---- positions: the picture as shown (turned upright) vs. the phone's own screen
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+// A point on the picture (fractions, 0..1) -> the same point on the phone's native screen.
+function toPhone(u, v) {
+  const turn = mirrorTurn();
+  const p = turn === 90 ? [v, 1 - u] : turn === 180 ? [1 - u, 1 - v] : turn === 270 ? [1 - v, u] : [u, v];
+  return { x: clamp01(p[0]), y: clamp01(p[1]) };
+}
+const mc = $("mirror-canvas");
+const viewPoint = (e) => {
+  const r = mc.getBoundingClientRect();
+  return { u: clamp01((e.clientX - r.left) / r.width), v: clamp01((e.clientY - r.top) / r.height) };
+};
+function touch(phase, p) {
+  mirrorSend({ t: "touch", phase, ...toPhone(p.u, p.v) });
+}
+
+// The pointer over the screen: a small dot (the system cursor is hidden there) that dips on a press.
+const cursorDot = $("mirror-cursor");
+function moveCursor(e) {
+  const r = mc.getBoundingClientRect();
+  cursorDot.style.translate = `${e.clientX - r.left}px ${e.clientY - r.top}px`;
+}
+mc.addEventListener("pointerenter", (e) => { moveCursor(e); cursorDot.hidden = false; });
+mc.addEventListener("pointerleave", () => { if (!mirror.down) cursorDot.hidden = true; });
+
+// A faint trail behind a dragging finger, fading in a quarter of a second.
+const trail = { pts: [], raf: 0 };
+function addTrail(e) {
+  const r = mc.getBoundingClientRect();
+  trail.pts.push({ x: e.clientX - r.left, y: e.clientY - r.top, t: performance.now() });
+  if (!trail.raf) trail.raf = requestAnimationFrame(drawTrail);
+}
+function drawTrail() {
+  const tc = $("mirror-trail"), dpr = devicePixelRatio || 1, w = Math.round(tc.clientWidth * dpr), h = Math.round(tc.clientHeight * dpr);
+  if (tc.width !== w || tc.height !== h) { tc.width = w; tc.height = h; }
+  const ctx = tc.getContext("2d"), now = performance.now(), life = 260;
+  ctx.clearRect(0, 0, w, h);
+  trail.pts = trail.pts.filter((p) => now - p.t < life);
+  ctx.lineCap = "round";
+  for (let i = 1; i < trail.pts.length; i++) {
+    const a = trail.pts[i - 1], b = trail.pts[i], f = 1 - (now - b.t) / life;
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.45 * f})`;
+    ctx.lineWidth = (1.5 + 2.5 * f) * dpr;
+    ctx.beginPath();
+    ctx.moveTo(a.x * dpr, a.y * dpr);
+    ctx.lineTo(b.x * dpr, b.y * dpr);
+    ctx.stroke();
+  }
+  trail.raf = trail.pts.length ? requestAnimationFrame(drawTrail) : 0;
+}
+
+mc.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || mirror.wheel || mirror.pinch) return;
+  mc.setPointerCapture(e.pointerId);
+  mirror.down = true;
+  cursorDot.classList.remove("up");
+  cursorDot.classList.add("down");
+  addTrail(e);
+  touch("down", viewPoint(e));
+});
+mc.addEventListener("pointermove", (e) => {
+  moveCursor(e);
+  if (!mirror.down) return;
+  addTrail(e);
+  // Pointer events can come faster than the screen refreshes: send the newest once per frame.
+  if (!mirror.moveTo) requestAnimationFrame(() => { if (mirror.down && mirror.moveTo) touch("move", mirror.moveTo); mirror.moveTo = null; });
+  mirror.moveTo = viewPoint(e);
+});
+const touchUp = (e) => {
+  if (!mirror.down) return;
+  mirror.down = false;
+  mirror.moveTo = null;
+  cursorDot.classList.remove("down");
+  cursorDot.classList.add("up");
+  touch("up", viewPoint(e));
+};
+mc.addEventListener("pointerup", touchUp);
+mc.addEventListener("pointercancel", touchUp);
+mc.addEventListener("contextmenu", (e) => { e.preventDefault(); mirrorSend({ t: "button", name: "home" }); });
+
+// Mouse wheel: a finger drag that follows the wheel, lifted when the wheel rests.
+// Ctrl + wheel (and a trackpad pinch, which arrives the same way): two fingers pinching.
+mc.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (mirror.down || mirror.status.state !== "on") return;
+  const r = mc.getBoundingClientRect(), line = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? r.height : 1;
+  let dx = e.deltaX * line, dy = e.deltaY * line;
+  if (e.ctrlKey) return pinch(e, dy);
+  if (e.shiftKey && !dx) [dx, dy] = [dy, 0];
+  const w = mirror.wheel || (mirror.wheel = { start: viewPoint(e), p: null });
+  if (!w.p) { w.p = { ...w.start }; touch("down", w.p); }
+  w.p = { u: w.p.u - dx / r.width, v: w.p.v - dy / r.height };
+  const out = w.p.u < 0.03 || w.p.u > 0.97 || w.p.v < 0.03 || w.p.v > 0.97;
+  w.p = { u: Math.min(0.97, Math.max(0.03, w.p.u)), v: Math.min(0.97, Math.max(0.03, w.p.v)) };
+  touch("move", w.p);
+  clearTimeout(w.timer);
+  if (out) { touch("up", w.p); w.p = null; } // reached the edge: lift, the next turn starts again where it began
+  w.timer = setTimeout(() => { if (w.p) touch("up", w.p); mirror.wheel = null; }, 160);
+}, { passive: false });
+
+function pinch(e, dy) {
+  const p = mirror.pinch || (mirror.pinch = { c: viewPoint(e), d: 0.1, down: false });
+  p.d = Math.min(0.42, Math.max(0.03, p.d * Math.exp(-dy * 0.004))); // wheel up (or fingers apart) zooms in
+  const a = toPhone(p.c.u, clamp01(p.c.v - p.d)), b = toPhone(p.c.u, clamp01(p.c.v + p.d));
+  const send = (phase) => mirrorSend({ t: "touch", phase, x: a.x, y: a.y, x2: b.x, y2: b.y });
+  send(p.down ? "move" : "down");
+  p.down = true;
+  clearTimeout(p.timer);
+  p.timer = setTimeout(() => { send("up"); mirror.pinch = null; }, 200);
+}
+
+// Buttons and gestures next to the screen (gestures are drawn by the app, turned with the phone).
+$("mirror-tools").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.button) mirrorSend({ t: "button", name: b.dataset.button });
+  else if (b.dataset.gesture) mirrorSend({ t: "gesture", name: b.dataset.gesture });
+});
+$("btn-mirror-rotate").onclick = () => {
+  mirror.turn = (mirror.turn + 90) % 360;
+  turnPicture(90);
+};
+$("btn-mirror-refresh").onclick = guard(async () => {
+  await api("/api/screen/input", { body: { t: "refresh" } });
+  toast("Restarting the stream…");
+});
+
+// Keys go to the iPhone while the picture has focus (click it); the app's shortcuts stay off meanwhile.
+mc.addEventListener("focus", () => mc.classList.add("typing"));
+mc.addEventListener("blur", () => { mc.classList.remove("typing"); });
+for (const type of ["keydown", "keyup"]) {
+  mc.addEventListener(type, (e) => {
+    if (e.key === "Escape") { mc.blur(); return; } // never trap the keyboard in the picture
+    const usage = HID_KEYS[e.code];
+    e.preventDefault();
+    e.stopPropagation();
+    if (usage && !(type === "keydown" && e.repeat)) mirrorSend({ t: "key", usage, down: type === "keydown" });
+  });
+}
+
+// ---- screenshots and recordings: saved by the app to the folder chosen in Settings › Mirroring
+const stamp = () => new Date().toISOString().slice(0, 23).replace(/[-:]/g, "").replace("T", "-").replace(".", "");
+async function saveCapture(blob, name) {
+  const r = await fetch(`/api/screen/save?name=${encodeURIComponent(name)}`, { method: "POST", body: blob });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(errorText(data, r.status));
+  toast(`Saved to ${data.path}`);
+}
+function renderCaptureFolder() {
+  $("capture-folder").value = (settings().capture_folder || "").trim();
+}
+function setCaptureFolder(path) {
+  settings().capture_folder = (path || "").trim();
+  renderCaptureFolder();
+  saveSettingsSoon();
+}
+$("capture-folder").addEventListener("change", (e) => setCaptureFolder(e.target.value));
+$("btn-capture-browse").onclick = guard(async () => {
+  const { path } = await api("/api/pick-folder", { body: {} });
+  if (path) setCaptureFolder(path);
+});
+$("btn-mirror-shot").onclick = guard(async () => {
+  const c = $("mirror-canvas");
+  if (!c.width) throw new Error("There is no picture yet. Wait for the iPhone's screen to appear.");
+  await saveCapture(await new Promise((r) => c.toBlob(r, "image/png")), `idevbench-screenshot-${stamp()}.png`);
+});
+$("btn-mirror-rec").onclick = guard(async () => {
+  const btn = $("btn-mirror-rec");
+  if (mirror.recorder) { mirror.recorder.stop(); return; }
+  const c = $("mirror-canvas");
+  if (!c.width) throw new Error("There is no picture yet. Wait for the iPhone's screen to appear.");
+  const stream = c.captureStream(60);
+  if (mirror.audio) mirror.audio.tap.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
+  const type = ["video/mp4;codecs=avc1.640028,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t));
+  const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 12e6 });
+  const parts = [];
+  rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
+  rec.onstop = guard(async () => {
+    mirror.recorder = null;
+    btn.classList.remove("recording");
+    btn.querySelector("span").textContent = "Record";
+    if (parts.length) await saveCapture(new Blob(parts, { type: rec.mimeType }), `idevbench-recording-${stamp()}.${rec.mimeType.startsWith("video/mp4") ? "mp4" : "webm"}`);
+  });
+  rec.start(1000);
+  mirror.recorder = rec;
+  btn.classList.add("recording");
+  btn.querySelector("span").textContent = "Stop recording";
+});
+
+// ---- stats: the stream (frame rate, data rate, decode delay, dropped frames, sound buffer)
+// and the iPhone itself (CPU, memory, GPU, its own frame rate, battery and temperature)
+function newStats() { return { frames: 0, bytes: 0, decodeMs: 0, decoded: 0, dropped: 0, keys: 0, total: 0, at: performance.now() }; }
+const fmt = (v, digits = 0, unit = "") => (v === null || v === undefined ? "–" : `${Number(v).toFixed(digits)}${unit}`);
+const gb = (b) => (b === null || b === undefined ? "–" : (b / 2 ** 30).toFixed(1));
+setInterval(() => {
+  const st = mirror.stats, box = $("mirror-stats");
+  if (!st || box.hidden) return;
+  const s = (performance.now() - st.at) / 1000, c = $("mirror-canvas"), p = mirror.perf;
+  st.total += st.dropped;
+  const sound = mirror.audio ? `  sound ${Math.max(0, Math.round((mirror.nextAudio - mirror.audio.ctx.currentTime) * 1000))} ms` : "";
+  let text = `Stream  ${Math.round(st.frames / s)} fps  ${(st.bytes * 8 / s / 1e6).toFixed(1)} Mbit/s  decode ${st.decoded ? (st.decodeMs / st.decoded).toFixed(1) : "–"} ms\n`
+    + `        ${c.width}×${c.height}  dropped ${st.total}  keyframes ${st.keys}${sound}`;
+  if (p) {
+    text += `\niPhone  CPU ${fmt(p.cpu, 0, "%")}${p.cores ? ` of ${p.cores} cores` : ""}  RAM ${gb(p.memory_used)}/${gb(p.memory_total)} GB  GPU ${fmt(p.gpu, 0, "%")}  ${fmt(p.fps, 0, " fps")}\n`
+      + `        battery ${fmt(p.battery, 0, "%")}${p.charging ? " (charging)" : ""}  ${fmt(p.battery_temp, 1, " °C")}`;
+  }
+  box.textContent = text;
+  Object.assign(st, { frames: 0, bytes: 0, decodeMs: 0, decoded: 0, dropped: 0, at: performance.now() });
+}, 1000);
+setInterval(async () => {
+  if (!mirror.stats || mirror.status.state !== "on" || mirror.status.simulated) return;
+  try { mirror.perf = await api("/api/screen/perf"); } catch (_) { /* not mirroring any more */ }
+}, 2000);
+function setStats(on) {
+  mirror.stats = on ? newStats() : null;
+  $("mirror-stats").hidden = !on;
+  $("mirror-stats").textContent = "Measuring…";
+  $("btn-mirror-stats").classList.toggle("on", on);
+  try { localStorage.setItem("ls-mirror-stats", on ? "1" : ""); } catch (_) { /* storage blocked */ }
+}
+$("btn-mirror-stats").onclick = () => setStats(!mirror.stats);
+try { if (localStorage.getItem("ls-mirror-stats")) setStats(true); } catch (_) { /* storage blocked */ }
+
+// ------------------------------------------------------------------ AI agents (MCP)
+// One prompt for any agent that can set itself up (Claude Code, Codex, Cursor, Gemini CLI, ...);
+// Claude Desktop can't, so the app writes its settings file instead.
+async function renderAgentSetup() {
+  const m = await api("/api/mcp/setup");
+  const quote = (a) => (/[\s"]/.test(a) ? JSON.stringify(a) : a);
+  const cmdLine = [m.command, ...m.args].map(quote).join(" ");
+  const env = Object.entries(m.env || {}).map(([k, v]) => `${k}=${v}`).join(", ");
+  $("agent-prompt").value = [
+    "Connect yourself to iDevBench, an app on my computer that controls my iPhone (its screen and its GPS location), by adding it as an MCP server named \"idevbench\". Do the setup yourself with your own MCP settings or commands, using whichever of these your app supports:",
+    `- Streamable HTTP server at ${m.url} (for example: claude mcp add --transport http --scope user idevbench ${m.url})`,
+    `- A local stdio server started with: ${cmdLine}${env ? ` (environment: ${env})` : ""} (for example: codex mcp add idevbench -- ${cmdLine})`,
+    "Add it for my user account, not just this folder. Then reload your tools if needed and call the idevbench \"guide\" tool, which explains how to use the phone. If you can't add MCP servers yourself, tell me exactly where to paste these settings.",
+  ].join("\n");
+  $("agent-claude-status").textContent = m.claude_desktop ? "" : "Claude Desktop doesn't seem to be installed.";
+}
+$("btn-agent-setup").onclick = () => openSettings("agents");
+$("btn-agent-copy").onclick = guard(async () => {
+  if (!$("agent-prompt").value) await renderAgentSetup();
+  await navigator.clipboard.writeText($("agent-prompt").value);
+  toast("Prompt copied. Paste it into your AI agent.");
+});
+$("btn-agent-claude").onclick = guard(async () => {
+  await api("/api/mcp/claude-desktop", { body: {} });
+  $("agent-claude-status").textContent = "Added. Quit Claude completely and open it again.";
+});
+
 // ------------------------------------------------------------------ boot
 wireInfoButtons();
 wireSections();
@@ -3235,6 +3823,8 @@ function notifyReady() {
 (async () => {
   try { await loadStore(); } finally { requestAnimationFrame(() => requestAnimationFrame(notifyReady)); }
   await refreshGoogleStatus();
+  api("/api/screen").then(renderMirror, () => {});
+  try { if (localStorage.getItem("ls-mode") === "screen") setMode("screen"); } catch (_) { /* storage blocked */ }
   await poll();
   refreshDevices(false);
   if (!settings().tutorial_done) openTutorial(0);

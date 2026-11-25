@@ -27,7 +27,7 @@ import httpx
 from . import geo, google_api, road_speed
 
 log = logging.getLogger(__name__)
-USER_AGENT = "iPhone-Location-Spoofer/1.0 (local desktop app)"
+USER_AGENT = "iDevBench/1.0 (local desktop app)"
 
 OSRM_URLS = {
     "car": os.environ.get("SPOOFER_OSRM_CAR", "https://routing.openstreetmap.de/routed-car"),

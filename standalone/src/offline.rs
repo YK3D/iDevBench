@@ -187,7 +187,7 @@ pub struct DownloadIn {
 impl Offline {
     pub fn new(data_dir: &Path) -> Arc<Self> {
         let http = reqwest::Client::builder()
-            .user_agent(format!("LocationSpoofer/{} (+https://github.com/YK3D/iPhone-location-spoofer)", crate::updater::current_version()))
+            .user_agent(format!("iDevBench/{} (+https://github.com/YK3D/iPhone-location-spoofer)", crate::updater::current_version()))
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .expect("http client");
