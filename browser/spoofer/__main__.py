@@ -88,7 +88,7 @@ def _self_test() -> int:
     checks.append(("pymobiledevice3 CLI", out.returncode == 0 and "latitude" in out.stdout.lower()))
 
     ok = all(v for _, v in checks)
-    print(f"Sideport Browser Edition {__version__} self-test")
+    print(f"iDevBench Browser Edition {__version__} self-test")
     for name, v in checks:
         print(f"  {'OK  ' if v else 'FAIL'} {name}")
     if not checks[-1][1]:
@@ -101,7 +101,7 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "pmd3-cli":
         sys.exit(_run_pmd3_cli(sys.argv[2:]))
 
-    ap = argparse.ArgumentParser(prog="LocationSpooferBrowser", description="Sideport Browser Edition")
+    ap = argparse.ArgumentParser(prog="LocationSpooferBrowser", description="iDevBench Browser Edition")
     ap.add_argument("--host", default="127.0.0.1", help="interface to listen on (default: this computer only)")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true", help="do not open the browser automatically")
@@ -162,7 +162,7 @@ def main() -> None:
     app.state.server = server
     if not args.no_browser:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
-    print(f"\n  Sideport Browser Edition {__version__} is running at {url}\n  Keep this window open. Close it (or press Ctrl+C) to quit.\n")
+    print(f"\n  iDevBench Browser Edition {__version__} is running at {url}\n  Keep this window open. Close it (or press Ctrl+C) to quit.\n")
     server.run()
 
     if getattr(app.state, "restart_requested", False):

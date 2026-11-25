@@ -35,7 +35,7 @@ STYLES = ("styles/dark", "styles/liberty")
 GLYPH_RANGES = ("0-255", "256-511", "512-767", "768-1023", "1024-1279", "8192-8447", "8448-8703")
 RELIEF_PREFIX = "natural_earth/ne2sr/"
 TILE_PREFIX = "planet-tiles/"
-USER_AGENT = f"Sideport/{__version__} (+https://github.com/YK3D/iPhone-location-spoofer)"
+USER_AGENT = f"iDevBench/{__version__} (+https://github.com/YK3D/iPhone-location-spoofer)"
 _ALLOWED = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/%@,")
 # 1x1 transparent PNG: answer for a relief tile that is neither cached nor reachable
 EMPTY_PNG = bytes.fromhex(

@@ -1,4 +1,4 @@
-/* Sideport — UI shared by the standalone and browser apps. Talks to the local server at /api.
+/* iDevBench — UI shared by the standalone and browser apps. Talks to the local server at /api.
    Copyright (c) 2026 YK3D. All rights reserved. Licensed under the Location Spoofer License (LICENSE). */
 "use strict";
 
@@ -2862,7 +2862,7 @@ $("btn-export-data").onclick = () => {
   const data = { ...state.store, settings: { ...settings() } };
   delete data.settings.google_api_key; // never put the API key in a backup file
   const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
-  const a = el("a", { href: URL.createObjectURL(blob), download: "sideport-backup.json" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: "idevbench-backup.json" });
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
@@ -2956,7 +2956,7 @@ async function refreshGoogleStatus() {
 }
 
 // ------------------------------------------------------------------ first-run tutorial
-const SITE = "https://iphone-spoofer.vercel.app"; // the website hosts the Terms, Privacy Policy and licences
+const SITE = "https://idevbench.vercel.app"; // the website hosts the Terms, Privacy Policy and licences
 const TUTORIAL = [
   { title: "Welcome", body: [
       "This app sets your iPhone's location from this computer over a USB cable: jump to any place, follow routes at realistic speeds, or replay GPX files.",
@@ -3244,7 +3244,7 @@ async function poll() {
     const st = await api("/api/status");
     state.status = st;
     $("version").textContent = `v${st.version}${st.app === "standalone" ? "" : " · browser"}${st.feature_test ? ` · feature test #${st.feature_test}` : ""}`;
-    document.querySelector(".brand h1").title = `Sideport ${$("version").textContent}`;
+    document.querySelector(".brand h1").title = `iDevBench ${$("version").textContent}`;
     $("about-version").textContent = `Version ${st.version} (${st.app === "standalone" ? "standalone app" : "browser version"})`;
     if (!state.bootVersion) { state.bootVersion = st.version; applyFeatures(st.features); }
     renderUpdate(st);

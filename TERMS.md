@@ -2,7 +2,7 @@
 
 _Last updated: 25 November 2026_
 
-By downloading, installing or using Sideport, formerly called Location Spoofer (the standalone app or the browser version, together "the app"), you agree to these terms. If you do not agree, do not use the app.
+By downloading, installing or using iDevBench, formerly called Location Spoofer (the standalone app or the browser version, together "the app"), you agree to these terms. If you do not agree, do not use the app.
 
 ## 1. What the app is
 

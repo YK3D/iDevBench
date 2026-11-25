@@ -121,7 +121,7 @@ async def lifespan(app: FastAPI):
         await routing.close()
 
 
-app = FastAPI(title="Sideport Browser Edition", version=__version__, lifespan=lifespan)
+app = FastAPI(title="iDevBench Browser Edition", version=__version__, lifespan=lifespan)
 
 
 _LOCAL_HOSTS = ("127.0.0.1", "localhost")

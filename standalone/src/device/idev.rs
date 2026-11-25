@@ -150,7 +150,7 @@ pub(crate) async fn ensure_paired(provider: &UsbmuxdProvider) -> Result<(), Stri
     let mut ld = LockdownClient::connect(provider).await.map_err(|e| friendly(&e))?;
     let buid = usbmux().await?.get_buid().await.map_err(|e| friendly(&e))?;
     let host_id = random_uuid();
-    let pf = ld.pair(host_id, buid, Some("Sideport")).await.map_err(|e| friendly(&e))?;
+    let pf = ld.pair(host_id, buid, Some("iDevBench")).await.map_err(|e| friendly(&e))?;
     let bytes = pf.serialize().map_err(|e| friendly(&e))?;
     usbmux().await?.save_pair_record(&provider.udid, bytes).await.map_err(|e| friendly(&e))
 }

@@ -41,7 +41,7 @@ ASSET = "LocationSpooferBrowser.exe"
 TAG_PREFIX = "browser-v"
 CHECK_EVERY_S = 6 * 3600
 ALLOWED_HOSTS = ("github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
-USER_AGENT = f"Sideport/{__version__}"
+USER_AGENT = f"iDevBench/{__version__}"
 
 
 def parse_version(text: str) -> tuple[int, ...]:

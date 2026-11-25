@@ -1,4 +1,4 @@
-**Sideport {VERSION}** (formerly Location Spoofer) — the recommended Windows app.{CHANNEL_NOTE}
+**iDevBench {VERSION}** (formerly Location Spoofer) — the recommended Windows app.{CHANNEL_NOTE}
 
 ### Install
 1. Install [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store (free, made by Apple; iTunes also works).
