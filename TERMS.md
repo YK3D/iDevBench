@@ -11,7 +11,7 @@ The app is free software, made by YK3D, for working with an iPhone or iPad you o
 * simulate the device's GPS location;
 * show the device's screen on your computer ("screen mirroring"), play the device's sound, and let you control the device with your mouse and keyboard;
 * save screenshots and screen recordings;
-* let other programs on your computer use these features through a local programming interface (the "API"), if you turn it on.
+* let other programs on your computer use these features through a local programming interface (the "API").
 
 It is intended for app development and testing, demonstrations, education, accessibility and personal privacy.
 
@@ -38,7 +38,7 @@ The app cannot hide that a location is simulated: apps can detect it, and other 
 
 ## 4. The API for other programs
 
-The API is off until you turn it on in *Settings › Developer API*. When it is on, any program on your computer that has the API key can do what the app can do: read the device's screen, control the device and change its location. Only give the key to programs you trust, and create a new key (which stops the old one working) if you no longer trust one. Programs that use the API are not made by YK3D, and their own terms and privacy policies apply to them.
+While the app is open, programs on your computer can use its local API to do what the app can do: see the device's screen, control the device and change its location. Websites cannot use it, and it cannot be reached from other computers. Only run programs you trust, and close the app when you are not using it. Programs that use the API are not made by YK3D, and their own terms and privacy policies apply to them. See [docs/API.md](docs/API.md).
 
 ## 5. No warranty
 

@@ -11,7 +11,7 @@ This policy covers both editions of Sideport, formerly called Location Spoofer: 
 * To show maps, find places and calculate routes, the app talks **directly from your computer to third-party online services** listed below. Those services receive the information needed to answer each request (for example map coordinates or a search term) and your IP address, under their own privacy policies.
 * The app talks to your iPhone **only over the USB cable or your local network**; nothing about the phone is sent to the internet by the app.
 * **Screen mirroring** (the picture, the sound and your clicks and key presses) travels only between the phone and your computer. The app does not upload it, analyse it or keep a copy. Only screenshots and recordings that you save are written to disk, where you choose.
-* The **API for other programs** is off by default. If you turn it on, programs on your computer that have the API key can receive the phone's screen and sound and control the phone. What they do with it is covered by their own privacy policies.
+* The **local API for other programs** works only while the app is open, only for programs on your computer (not websites or other computers). Programs that use it can receive the phone's screen and control the phone; what they do with it is covered by their own privacy policies.
 
 ## What is stored on your computer
 
@@ -25,7 +25,6 @@ This policy covers both editions of Sideport, formerly called Location Spoofer: 
 | Developer access only: the remembered developer password and downloaded feature-test builds | `feature-tests` folder next to `data.json` | Only if the developer unlocks feature tests and ticks "Remember" |
 | Downloaded updates | Next to the app's `.exe` until installed | Self-update |
 | Screenshots and screen recordings (only the ones you save) | The folder you pick when saving (usually *Downloads*) | So you can keep them. The app does not keep its own copy |
-| API key and the API on/off setting (only if you turn the API on) | `api.json` next to `data.json` | So programs you trust can use the API. It is never included in backup exports |
 
 You can delete all of it at any time by deleting those folders. Uninstalling the app (deleting the `.exe`) does not delete `data.json`.
 
