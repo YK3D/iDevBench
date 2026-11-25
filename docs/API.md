@@ -1,6 +1,6 @@
-# Sideport local API
+# iDevBench local API
 
-While Sideport is open, other programs on the same computer can use the same HTTP API as its own window: connect to the iPhone, set its location, watch its screen and control it.
+While iDevBench is open, other programs on the same computer can use the same HTTP API as its own window: connect to the iPhone, set its location, watch its screen and control it.
 
 * **Address:** `http://127.0.0.1:8766` for the standalone app, `http://127.0.0.1:8765` for the browser edition. Start the app with `--port <number>` to choose another port; if the standalone app's port is taken by another program, it picks a free one at random.
 * **Who can use it:** programs on this computer. Requests must use the host `127.0.0.1` or `localhost`. Requests from websites (any `Origin` header other than the app's own page) are refused with `403`, and the server is not reachable from other computers.
@@ -28,7 +28,7 @@ curl -X POST http://127.0.0.1:8766/api/location/set -H "Content-Type: applicatio
 
 ## Screen mirroring and control
 
-Needs iOS 27 or newer. The phone only accepts touches and keys while mirroring runs, so start it first (the app's Mirror tab and other programs share one session).
+Needs iOS 27 or newer. The phone only accepts touches and keys while mirroring runs, so start it first (the app's Mirroring section and other programs share one session).
 
 | Method and path | Body | What it does |
 |---|---|---|
@@ -38,7 +38,8 @@ Needs iOS 27 or newer. The phone only accepts touches and keys while mirroring r
 | `POST /api/screen/input` | one input, see below | Tap, swipe, press a button or type |
 | `GET /api/screen/screenshot` | | A PNG of the screen, taken by the phone |
 | `GET /api/screen/ws` | WebSocket | Live picture, sound and status; send inputs on it too |
-| `POST /api/screen/save?name=<file>` | the file | Saves a screenshot or recording (`.png`, `.mp4`, `.webm`) to the folder chosen in *Settings › Screen* (Downloads by default); answers `{"path": ...}` |
+| `POST /api/screen/save?name=<file>` | the file | Saves a screenshot or recording (`.png`, `.mp4`, `.webm`) to the folder chosen in *Settings › Mirroring* (Downloads by default); answers `{"path": ...}` |
+| `GET /api/screen/perf` | | The iPhone's `cpu` (% of all cores), `cores`, `memory_used` and `memory_total` (bytes), `gpu` (%), `fps` (its own frame rate), `battery` (%), `charging`, `battery_temp` (°C). Null until measured: the first request starts measuring |
 
 ### Inputs
 
@@ -51,9 +52,13 @@ The picture always arrives in that native orientation. When the phone is turned,
 | Tap | `{"t": "tap", "x": 0.5, "y": 0.9}` |
 | Swipe (`ms` 50–5000, default 300) | `{"t": "swipe", "x1": 0.5, "y1": 0.8, "x2": 0.5, "y2": 0.2, "ms": 300}` |
 | One finger, step by step | `{"t": "touch", "phase": "down", "x": 0.5, "y": 0.5}`, then `"move"`, then `"up"` |
+| Two fingers (pinch), step by step | the same with `"x2"` and `"y2"` for the second finger |
+| Touch and hold (`ms` 100–5000, default 800) | `{"t": "long_press", "x": 0.5, "y": 0.5}` |
+| System gesture, drawn the right way up for how the phone is turned | `{"t": "gesture", "name": "app_switcher"}`: `home`, `app_switcher`, `control_centre`, `notification_centre`, `back` |
 | Hardware button | `{"t": "button", "name": "home"}`: `home`, `lock`, `volume-up`, `volume-down`, `mute`, `siri` |
 | Type text (US keyboard layout, up to 2000 characters) | `{"t": "text", "text": "Hello"}` |
 | One key down or up ([HID keyboard usage](https://usb.org/sites/default/files/hut1_5.pdf), page 7) | `{"t": "key", "usage": 40, "down": true}` (40 is Return) |
+| A key pressed and released, optionally with ⌘ | `{"t": "key", "usage": 4, "command": true}` (⌘A) |
 | Ask for a fresh full frame | `{"t": "keyframe"}` |
 | Restart the picture (if it froze; the app also does this by itself after a few seconds) | `{"t": "refresh"}` |
 
@@ -106,20 +111,22 @@ with connect("ws://127.0.0.1:8766/api/screen/ws") as ws:
 
 ## AI agents (MCP)
 
-[`agents/sideport_mcp.py`](../agents/sideport_mcp.py) is a [Model Context Protocol](https://modelcontextprotocol.io) server that gives AI agents (Claude Code, Claude Desktop, Cursor and others) tools to use the iPhone through this API: `screenshot`, `tap`, `swipe`, `long_press`, `gesture` (home, app switcher, Control Centre, Notification Centre, back), `press_button`, `type_text`, `press_key`, `set_location`, `clear_location`, `start_screen`, `stop_screen`, `iphone_status`, `list_devices` and `connect_device`. It needs Python 3.9 or newer (nothing to install) and Sideport open.
+iDevBench is a [Model Context Protocol](https://modelcontextprotocol.io) server: AI agents (Claude, Cursor, VS Code, Windsurf and others) get tools for everything the app does with the phone. Location: `get_status`, `list_devices`, `connect_device`, `search_place`, `parse_map_link`, `set_location`, `clear_location`, `drive_route`, `play_track`, `playback`, `seek_playback`, `playback_options`, `joystick`, `list_favourites`, `mount_developer_image`, `reveal_developer_mode`. Screen: `start_mirroring`, `stop_mirroring`, `mirroring_status`, `screenshot`, `tap`, `long_press`, `swipe`, `gesture`, `press_button`, `type_text`, `press_key`, `refresh_mirroring`, `phone_performance`, `wait`. The list and descriptions are in [`ui/mcp-tools.json`](../ui/mcp-tools.json). The app must be open.
 
-Claude Code:
+**Apps that connect to a URL** (Claude Code, Cursor, VS Code): `http://127.0.0.1:8766/mcp` (the browser edition: port 8765). For Claude Code:
 
 ```bash
-claude mcp add sideport -- python C:\path\to\sideport_mcp.py
+claude mcp add --transport http idevbench http://127.0.0.1:8766/mcp
 ```
 
-Claude Desktop, Cursor and other apps take the same command in their MCP settings, for example:
+**Apps that start a program** (Claude Desktop and others): the app itself, with `--mcp`. In Claude Desktop's `claude_desktop_config.json`:
 
 ```json
-{ "mcpServers": { "sideport": { "command": "python", "args": ["C:\\path\\to\\sideport_mcp.py"] } } }
+{ "mcpServers": { "idevbench": { "command": "C:\\path\\to\\LocationSpooferStandalone.exe", "args": ["--mcp"] } } }
 ```
 
-[`agents/skills/sideport-iphone`](../agents/skills/sideport-iphone/SKILL.md) is a skill that teaches an agent how to work with the phone (look, act, look again; positions as fractions; what not to do on someone's real phone). For Claude Code, copy the folder to `~/.claude/skills/` (or a project's `.claude/skills/`).
+`--mcp` only passes messages to the app that is already open (either edition); it opens no window.
+
+**Skill:** [`agents/skills/idevbench`](../agents/skills/idevbench/SKILL.md) teaches an agent how to work with the phone: look, act once, look again; positions as fractions of the screenshot; what not to do on someone's real phone. For Claude Code, copy the folder to `~/.claude/skills/` (or a project's `.claude/skills/`); in Claude Desktop, add it under *Settings › Capabilities › Skills*.
 
 The agent sees what the screenshots show, and the AI service it runs on receives them. Keep an eye on what it does: its taps act on the real phone.

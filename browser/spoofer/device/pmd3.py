@@ -34,7 +34,8 @@ def _friendly(e: BaseException) -> str:
     hints = {
         "ConnectionFailedToUsbmuxdError": "Cannot reach the Apple device service. On Windows open the Apple Devices app (or iTunes) and keep it open.",
         "NoDeviceConnectedError": "No iPhone found. Plug it in with a cable, unlock it and tap Trust.",
-        "PasswordRequiredError": "Unlock the iPhone and try again.",
+        "PasswordRequiredError": "The iPhone is locked. Unlock it and try again.",
+        "DeviceLockedError": "The iPhone is locked. Unlock it and try again.",
         "PairingDialogResponsePendingError": "Tap Trust on the iPhone, enter the passcode, then try again.",
         "UserDeniedPairingError": "The iPhone refused to trust this computer. Unplug, plug back in and tap Trust.",
         "DeveloperModeIsNotEnabledError": "Developer Mode is off. Use 'Reveal Developer Mode', then turn it on in Settings > Privacy & Security.",
@@ -218,6 +219,8 @@ class Pmd3Driver(DeviceDriver):
             return ""
         except Exception as e:  # location may still work if an image is mounted already
             log.warning("DDI auto-mount failed: %r", e)
+            if "locked" in str(e).lower() or e.__class__.__name__ in ("PasswordRequiredError", "DeviceLockedError"):
+                return "Could not mount the Developer Disk Image: the iPhone is locked. Unlock it and connect again."
             return f"Could not auto-mount the Developer Disk Image ({_friendly(e)}). If setting a location fails, check Developer Mode and the internet connection."
 
     async def disconnect(self) -> None:

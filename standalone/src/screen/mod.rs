@@ -33,15 +33,26 @@ pub const BUTTONS: [(&str, u64, u64, u64); 6] = [
     ("siri", 0x0C, 0xCF, 1000),
 ];
 
+/// System gestures: name, start and end (fractions of the upright screen), drag time and hold in ms.
+pub const GESTURES: [(&str, (f64, f64), (f64, f64), u64, u64); 5] = [
+    ("home", (0.5, 0.995), (0.5, 0.55), 200, 0),
+    ("app_switcher", (0.5, 0.995), (0.5, 0.62), 260, 450),
+    ("control_centre", (0.92, 0.004), (0.92, 0.45), 260, 0),
+    ("notification_centre", (0.3, 0.004), (0.3, 0.6), 260, 0),
+    ("back", (0.004, 0.5), (0.65, 0.5), 260, 0),
+];
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Input {
-    /// One finger: down, move or up at a point. Coordinates are 0..65535 across the screen.
-    Touch { phase: Phase, x: u16, y: u16 },
+    /// One finger (or two, for pinching): down, move or up. Coordinates are 0..65535 across the screen.
+    Touch { phase: Phase, x: u16, y: u16, second: Option<(u16, u16)> },
     Tap { x: u16, y: u16 },
     Swipe { x1: u16, y1: u16, x2: u16, y2: u16, ms: u64 },
+    LongPress { x: u16, y: u16, ms: u64 },
+    Gesture(&'static str),
     Button(&'static str, u64, u64, u64),
-    /// A HID keyboard usage (page 7) going down or up.
-    Key { usage: u64, down: bool },
+    /// A HID keyboard usage (page 7): down, up, or (None) pressed and released; `command` holds ⌘.
+    Key { usage: u64, down: Option<bool>, command: bool },
     Text(String),
     /// Ask the phone for a fresh full frame (a new viewer, or a decoder error).
     KeyFrame,
@@ -66,9 +77,11 @@ fn coord(v: &Value, k: &str) -> Result<u16, String> {
 
 /// Parse one input message. Coordinates are fractions of the screen (0..1, top left is 0,0).
 ///
-/// `{"t":"touch","phase":"down|move|up","x":0.5,"y":0.5}`, `{"t":"tap","x":..,"y":..}`,
-/// `{"t":"swipe","x1":..,"y1":..,"x2":..,"y2":..,"ms":300}`, `{"t":"button","name":"home"}`,
-/// `{"t":"key","usage":40,"down":true}`, `{"t":"text","text":"hello"}`, `{"t":"keyframe"}`, `{"t":"refresh"}`.
+/// `{"t":"touch","phase":"down|move|up","x":0.5,"y":0.5}` (plus `"x2","y2"` for a second finger),
+/// `{"t":"tap","x":..,"y":..}`, `{"t":"swipe","x1":..,"y1":..,"x2":..,"y2":..,"ms":300}`,
+/// `{"t":"long_press","x":..,"y":..,"ms":800}`, `{"t":"gesture","name":"app_switcher"}`, `{"t":"button","name":"home"}`,
+/// `{"t":"key","usage":40,"down":true}` (no `down`: press and release; `"command":true` holds ⌘),
+/// `{"t":"text","text":"hello"}`, `{"t":"keyframe"}`, `{"t":"refresh"}`.
 pub fn parse_input(v: &Value) -> Result<Input, String> {
     let t = v.get("t").and_then(Value::as_str).unwrap_or("");
     Ok(match t {
@@ -81,6 +94,7 @@ pub fn parse_input(v: &Value) -> Result<Input, String> {
             },
             x: coord(v, "x")?,
             y: coord(v, "y")?,
+            second: if v.get("x2").is_some() || v.get("y2").is_some() { Some((coord(v, "x2")?, coord(v, "y2")?)) } else { None },
         },
         "tap" => Input::Tap { x: coord(v, "x")?, y: coord(v, "y")? },
         "swipe" => Input::Swipe {
@@ -90,6 +104,14 @@ pub fn parse_input(v: &Value) -> Result<Input, String> {
             y2: coord(v, "y2")?,
             ms: v.get("ms").and_then(Value::as_u64).unwrap_or(300).clamp(50, 5000),
         },
+        "long_press" => Input::LongPress { x: coord(v, "x")?, y: coord(v, "y")?, ms: v.get("ms").and_then(Value::as_u64).unwrap_or(800).clamp(100, 5000) },
+        "gesture" => {
+            let name = v.get("name").and_then(Value::as_str).unwrap_or("");
+            let g = GESTURES.iter().find(|g| g.0 == name).ok_or(format!(
+                "Unknown gesture '{name}'. Use one of: home, app_switcher, control_centre, notification_centre, back"
+            ))?;
+            Input::Gesture(g.0)
+        }
         "button" => {
             let name = v.get("name").and_then(Value::as_str).unwrap_or("");
             let &(n, page, usage, hold) = BUTTONS
@@ -100,7 +122,11 @@ pub fn parse_input(v: &Value) -> Result<Input, String> {
         }
         "key" => Input::Key {
             usage: v.get("usage").and_then(Value::as_u64).filter(|u| (4..=0xE7).contains(u)).ok_or("'usage' must be a HID keyboard usage (4–231)")?,
-            down: v.get("down").and_then(Value::as_bool).ok_or("'down' must be true or false")?,
+            down: match v.get("down") {
+                None => None,
+                Some(d) => Some(d.as_bool().ok_or("'down' must be true or false")?),
+            },
+            command: v.get("command").and_then(Value::as_bool).unwrap_or(false),
         },
         "text" => {
             let text = v.get("text").and_then(Value::as_str).ok_or("'text' must be a string")?;
@@ -111,8 +137,13 @@ pub fn parse_input(v: &Value) -> Result<Input, String> {
         }
         "keyframe" => Input::KeyFrame,
         "refresh" => Input::Refresh,
-        _ => return Err("'t' must be touch, tap, swipe, button, key, text, keyframe or refresh".into()),
+        _ => return Err("'t' must be touch, tap, swipe, long_press, gesture, button, key, text, keyframe or refresh".into()),
     })
+}
+
+/// A finger moving: when moves pile up, only the newest needs sending.
+pub fn is_move(i: &Input) -> bool {
+    matches!(i, Input::Touch { phase: Phase::Move, .. })
 }
 
 /// HID keyboard usage and whether Shift is needed, for one character (US layout).
@@ -169,6 +200,18 @@ pub enum Out {
 enum Cmd {
     Input(Input, oneshot::Sender<Result<(), String>>),
     Screenshot(oneshot::Sender<Result<Vec<u8>, String>>),
+    /// Start measuring the phone's CPU, memory, GPU and battery (on the first request for them).
+    StartPerf,
+}
+
+/// The phone's performance figures, all null until measured: `cpu` (% of all cores), `cores`,
+/// `memory_used`/`memory_total` (bytes), `gpu` (%), `fps` (the phone's own frame rate),
+/// `battery_temp` (°C), `battery` (%), `charging`.
+pub fn empty_perf() -> serde_json::Map<String, Value> {
+    ["cpu", "cores", "memory_used", "memory_total", "gpu", "fps", "battery_temp", "battery", "charging"]
+        .into_iter()
+        .map(|k| (k.to_string(), Value::Null))
+        .collect()
 }
 
 #[derive(Default)]
@@ -181,6 +224,8 @@ struct Inner {
     session: u64,
     /// Simulator only: the inputs received, for tests and the API's dry runs.
     pub sim_inputs: Vec<Input>,
+    perf: serde_json::Map<String, Value>,
+    perf_started: bool,
 }
 
 pub struct Screen {
@@ -237,6 +282,7 @@ impl Screen {
             g.cmd = Some(tx);
             g.config = None;
             g.sim_inputs.clear();
+            (g.perf, g.perf_started) = (empty_perf(), false);
             g.status = Status { state: "starting", simulated, ..Default::default() };
             g.session
         };
@@ -315,6 +361,38 @@ impl Screen {
             .map_err(|_| "Screen mirroring stopped.".to_string())?
     }
 
+    /// The phone's latest performance figures; the first call starts measuring them.
+    pub fn perf(&self) -> Result<Value, String> {
+        let mut g = self.inner.lock().unwrap();
+        if g.status.state != "on" {
+            return Err("Screen mirroring is not running. Start it first.".into());
+        }
+        if g.perf.is_empty() {
+            g.perf = empty_perf();
+        }
+        if !g.perf_started && !g.status.simulated {
+            if let Some(c) = &g.cmd {
+                g.perf_started = c.send(Cmd::StartPerf).is_ok();
+            }
+        }
+        Ok(Value::Object(g.perf.clone()))
+    }
+
+    fn update_perf(&self, session: u64, f: impl FnOnce(&mut serde_json::Map<String, Value>)) {
+        let mut g = self.inner.lock().unwrap();
+        if g.session == session {
+            f(&mut g.perf);
+        }
+    }
+
+    /// A restarted stream measures again from scratch.
+    fn reset_perf(&self, session: u64) {
+        let mut g = self.inner.lock().unwrap();
+        if g.session == session {
+            (g.perf, g.perf_started) = (empty_perf(), false);
+        }
+    }
+
     #[cfg(test)]
     pub fn sim_inputs(&self) -> Vec<Input> {
         self.inner.lock().unwrap().sim_inputs.clone()
@@ -334,6 +412,7 @@ async fn simulator(m: Arc<Screen>, session: u64, mut rx: mpsc::UnboundedReceiver
             Cmd::Screenshot(r) => {
                 let _ = r.send(Err("The simulator has no screen to capture.".into()));
             }
+            Cmd::StartPerf => {}
         }
     }
     m.ended(session, None);
@@ -418,10 +497,20 @@ mod tests {
     fn parses_inputs() {
         assert_eq!(
             parse_input(&json!({"t": "touch", "phase": "down", "x": 0.5, "y": 1.0})).unwrap(),
-            Input::Touch { phase: Phase::Down, x: 32768, y: 65535 }
+            Input::Touch { phase: Phase::Down, x: 32768, y: 65535, second: None }
+        );
+        assert_eq!(
+            parse_input(&json!({"t": "touch", "phase": "move", "x": 0, "y": 0, "x2": 1, "y2": 0.5})).unwrap(),
+            Input::Touch { phase: Phase::Move, x: 0, y: 0, second: Some((65535, 32768)) }
+        );
+        assert_eq!(parse_input(&json!({"t": "gesture", "name": "back"})).unwrap(), Input::Gesture("back"));
+        assert_eq!(parse_input(&json!({"t": "long_press", "x": 0, "y": 0})).unwrap(), Input::LongPress { x: 0, y: 0, ms: 800 });
+        assert_eq!(
+            parse_input(&json!({"t": "key", "usage": 4, "command": true})).unwrap(),
+            Input::Key { usage: 4, down: None, command: true }
         );
         assert_eq!(parse_input(&json!({"t": "button", "name": "siri"})).unwrap(), Input::Button("siri", 0x0C, 0xCF, 1000));
-        assert_eq!(parse_input(&json!({"t": "key", "usage": 40, "down": false})).unwrap(), Input::Key { usage: 40, down: false });
+        assert_eq!(parse_input(&json!({"t": "key", "usage": 40, "down": false})).unwrap(), Input::Key { usage: 40, down: Some(false), command: false });
         assert_eq!(parse_input(&json!({"t": "refresh"})).unwrap(), Input::Refresh);
         assert!(matches!(parse_input(&json!({"t": "swipe", "x1": 0, "y1": 0, "x2": 1, "y2": 1})).unwrap(), Input::Swipe { ms: 300, .. }));
         for bad in [
@@ -430,6 +519,9 @@ mod tests {
             json!({"t": "touch", "phase": "hover", "x": 0, "y": 0}),
             json!({"t": "button", "name": "power"}),
             json!({"t": "key", "usage": 1, "down": true}),
+            json!({"t": "key", "usage": 4, "down": "yes"}),
+            json!({"t": "touch", "phase": "down", "x": 0, "y": 0, "x2": 0.5}),
+            json!({"t": "gesture", "name": "spin"}),
             json!({"t": "fly"}),
         ] {
             assert!(parse_input(&bad).is_err(), "{bad}");

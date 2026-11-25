@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import re
+import sys
 import uuid
 from collections import OrderedDict
 from contextlib import asynccontextmanager
@@ -27,7 +28,8 @@ from .device.mock import MockDriver
 from .device.pmd3 import Pmd3Driver
 from .gpx_io import parse_gpx, safe_filename, write_gpx
 from .mirrors import FanOut, MirrorLink
-from .screen import Screen, ScreenError, parse_input
+from . import mcp
+from .screen import Screen, ScreenError, is_move, parse_input
 from .player import Player
 from .profile import (
     Leg,
@@ -1017,6 +1019,54 @@ async def screen_save(name: str, request: Request):
     return {"path": await asyncio.to_thread(write)}
 
 
+@app.get("/api/screen/perf")
+async def screen_perf():
+    """The phone's CPU, memory, GPU and battery figures while mirroring (the first call starts measuring)."""
+    return S().screen.get_perf()
+
+
+# Windows' folder dialog, on top of other windows; prints the chosen folder in UTF-8.
+PICK_FOLDER_PS = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; "
+                  "$o=New-Object System.Windows.Forms.Form -Property @{TopMost=$true}; $d=New-Object System.Windows.Forms.FolderBrowserDialog; "
+                  "$d.Description='Folder for screenshots and recordings'; if($d.ShowDialog($o) -eq 'OK'){$d.SelectedPath}")
+
+
+@app.post("/api/pick-folder")
+async def pick_folder():
+    """Shows the system's folder picker on this computer; answers {"path": null} when cancelled."""
+    import subprocess
+
+    if sys.platform == "win32":
+        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-STA", "-Command", PICK_FOLDER_PS]
+    elif sys.platform == "darwin":
+        cmd = ["osascript", "-e", 'POSIX path of (choose folder with prompt "Folder for screenshots and recordings")']
+    else:
+        cmd = ["zenity", "--file-selection", "--directory", "--title=Folder for screenshots and recordings"]
+    flags = 0x08000000 if sys.platform == "win32" else 0  # no console window
+    try:
+        out = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, creationflags=flags)
+    except OSError:
+        raise HTTPException(400, "This computer has no folder picker the app can use. Type the folder's path instead.") from None
+    path = out.stdout.decode("utf-8", "replace").strip()
+    return {"path": path or None}
+
+
+@app.post("/mcp")
+async def mcp_post(request: Request):
+    """Model Context Protocol over HTTP (JSON answers, no sessions) for AI agents; see mcp.py."""
+    try:
+        msg = json.loads(await request.body())
+    except ValueError:
+        return JSONResponse(mcp._error(None, -32700, "Parse error"))
+    answer = await mcp.handle(msg, app, STATIC)
+    return Response(status_code=202) if answer is None else JSONResponse(answer)
+
+
+@app.get("/mcp")
+async def mcp_get():
+    return Response("Send MCP messages with POST.", status_code=405)
+
+
 @app.websocket("/api/screen/ws")
 async def screen_ws(ws: WebSocket):
     """Live picture, sound and status for the Mirror tab or another program; input goes the other way."""
@@ -1038,16 +1088,37 @@ async def screen_ws(ws: WebSocket):
             msg = await client.queue.get()
             await (ws.send_text(msg) if isinstance(msg, str) else ws.send_bytes(msg))
 
-    sender = asyncio.create_task(send())
+    inputs: asyncio.Queue = asyncio.Queue()
+
+    async def work() -> None:
+        """Inputs one after another, so a long one (Siri, typing) doesn't hold up reading the next."""
+        held = None
+        while True:
+            i = held or await inputs.get()
+            held = None
+            while is_move(i) and not inputs.empty():  # finger moves that piled up: only the newest matters
+                nxt = inputs.get_nowait()
+                if is_move(nxt):
+                    i = nxt
+                else:
+                    held = nxt
+                    break
+            try:
+                await m.input(i)
+            except (ValueError, ScreenError, DeviceError) as e:
+                client.queue.put_nowait(json.dumps({"type": "error", "detail": str(e)}))
+
+    sender, worker = asyncio.create_task(send()), asyncio.create_task(work())
     try:
         while True:
             text = await ws.receive_text()
             try:
-                await m.input(parse_input(json.loads(text)))
-            except (ValueError, ScreenError, DeviceError) as e:
+                inputs.put_nowait(parse_input(json.loads(text)))
+            except ValueError as e:
                 await ws.send_text(json.dumps({"type": "error", "detail": str(e)}))
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
         sender.cancel()
+        worker.cancel()
         m.unsubscribe(client)

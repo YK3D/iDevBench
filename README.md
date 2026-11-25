@@ -80,7 +80,7 @@ Both have the same look and features (apart from the differences above), and bot
 | Mirroring: "won't share its screen while an app uses the camera or microphone" | Close Camera, Voice Memos or any app that is recording, then press Start mirroring again |
 | Mirroring: "can't decode the iPhone's video (HEVC)" | Update the graphics driver, or install *HEVC Video Extensions* from the Microsoft Store |
 | Mirroring: the picture stays black | Unlock the iPhone. Some apps hide their content from screen mirroring, for example video streaming apps |
-| Mirroring: the picture freezes | It restarts by itself after a few seconds; press **Refresh** next to the screen to do it at once |
+| Mirroring: the picture freezes | It restarts by itself after a few seconds; press **Restart stream** next to the screen to do it at once |
 | Mirroring: the picture is sideways | Press **Rotate** next to the screen |
 | Something else | [Open an issue](https://github.com/YK3D/iPhone-location-spoofer/issues/new) and describe what happened, with the app's version (*Settings › About*) |
 
@@ -134,15 +134,16 @@ Both have the same look and features (apart from the differences above), and bot
 </details>
 
 <details>
-<summary><b>Screen mirroring and control (Screen section)</b></summary>
+<summary><b>Screen mirroring and control (Mirroring section)</b></summary>
 
-* **See the iPhone's screen** live in its own section of the app (switch between *Location* and *Screen* at the top), over the USB cable. Needs iOS 27 or newer. The picture turns with the phone.
-* **Control it:** click to tap, drag to swipe, scroll with the mouse wheel, right-click for Home. Buttons next to the screen for Home, Lock, Volume, Mute and Siri, and for the gestures: app switcher, Control Centre, Notification Centre and Back. A small dot shows where you touch.
-* **Type:** click the screen and type on your keyboard (Ctrl works as the iPhone's ⌘, so Ctrl+C and Ctrl+V copy and paste on the phone), or send a whole line of text.
+* **See the iPhone's screen** live in its own section of the app (switch between *Location* and *Mirroring* at the top), over the USB cable. Needs iOS 27 or newer. The picture turns with the phone.
+* **Control it:** click to tap, drag to swipe, scroll with the mouse wheel, Ctrl + wheel (or a trackpad pinch) to pinch and zoom, right-click for Home. Buttons next to the screen for Home, Lock, Volume, Mute and Siri, and for the gestures: app switcher, Control Centre, notifications and Back. Over the screen the pointer is a small dot that dips when you click, and a swipe leaves a faint trail.
+* **Type:** click the screen and type on your keyboard (Ctrl works as the iPhone's ⌘, so Ctrl+C and Ctrl+V copy and paste on the phone).
 * **Sound:** hear what the iPhone plays (standalone app).
-* **Screenshots and recordings:** save a picture, or record the screen with its sound as a video file, to your Downloads folder or a folder you choose in *Settings › Screen*.
-* **Stats** shows the frame rate, data rate and decoding delay; **Refresh** restarts a frozen picture (the app also does this by itself).
-* **For developers:** other programs on your computer can watch the screen, tap, type and set the location through the [local API](docs/API.md), and AI agents (Claude Code, Cursor and others) can use the phone through the included [MCP server and skill](docs/API.md#ai-agents-mcp).
+* **Screenshots and recordings:** save a picture, or record the screen with its sound as a video file, to your Downloads folder or a folder you choose in *Settings › Mirroring*.
+* **Stats** shows the stream's frame rate, data rate and delay, and the iPhone's CPU, memory, GPU, battery and temperature; **Restart stream** restarts a frozen picture (the app also does this by itself).
+* **For developers:** other programs on your computer can watch the screen, tap, type and set the location through the [local API](docs/API.md).
+* **AI agents:** connect Claude, Cursor or another AI app to iDevBench (it is an MCP server) and the agent can use the phone: see the screen, tap and type, set the location and drive routes. [How to connect it](docs/API.md#ai-agents-mcp).
 
 </details>
 

@@ -41,6 +41,17 @@ BUTTONS = {
 }
 
 
+# System gestures: start and end (fractions of the upright screen), drag time and hold in seconds.
+GESTURES = {
+    "home": ((0.5, 0.995), (0.5, 0.55), 0.2, 0),
+    "app_switcher": ((0.5, 0.995), (0.5, 0.62), 0.26, 0.45),
+    "control_centre": ((0.92, 0.004), (0.92, 0.45), 0.26, 0),
+    "notification_centre": ((0.3, 0.004), (0.3, 0.6), 0.26, 0),
+    "back": ((0.004, 0.5), (0.65, 0.5), 0.26, 0),
+}
+COMMAND = 0xE3
+
+
 class ScreenError(Exception):
     """Shown to the user as is (HTTP 409)."""
 
@@ -57,9 +68,11 @@ def _coord(v: dict, k: str) -> int:
 def parse_input(v: Any) -> tuple:
     """Parse one input message (coordinates are fractions of the screen, top left 0,0).
 
-    ``{"t":"touch","phase":"down|move|up","x":..,"y":..}``, ``{"t":"tap","x":..,"y":..}``,
-    ``{"t":"swipe","x1":..,"y1":..,"x2":..,"y2":..,"ms":300}``, ``{"t":"button","name":"home"}``,
-    ``{"t":"key","usage":40,"down":true}``, ``{"t":"text","text":"hi"}``, ``{"t":"keyframe"}``, ``{"t":"refresh"}``.
+    ``{"t":"touch","phase":"down|move|up","x":..,"y":..}`` (plus ``"x2","y2"`` for a second finger),
+    ``{"t":"tap","x":..,"y":..}``, ``{"t":"swipe","x1":..,"y1":..,"x2":..,"y2":..,"ms":300}``,
+    ``{"t":"long_press","x":..,"y":..,"ms":800}``, ``{"t":"gesture","name":"app_switcher"}``, ``{"t":"button","name":"home"}``,
+    ``{"t":"key","usage":40,"down":true}`` (no ``down``: press and release; ``"command":true`` holds ⌘),
+    ``{"t":"text","text":"hi"}``, ``{"t":"keyframe"}``, ``{"t":"refresh"}``.
     Raises ValueError with a message for the user.
     """
     if not isinstance(v, dict):
@@ -68,13 +81,22 @@ def parse_input(v: Any) -> tuple:
     if t == "touch":
         if v.get("phase") not in ("down", "move", "up"):
             raise ValueError("'phase' must be down, move or up")
-        return ("touch", v["phase"], _coord(v, "x"), _coord(v, "y"))
+        second = (_coord(v, "x2"), _coord(v, "y2")) if "x2" in v or "y2" in v else None
+        return ("touch", v["phase"], _coord(v, "x"), _coord(v, "y"), second)
     if t == "tap":
         return ("tap", _coord(v, "x"), _coord(v, "y"))
     if t == "swipe":
         ms = v.get("ms", 300)
         ms = min(max(int(ms), 50), 5000) if isinstance(ms, int) and not isinstance(ms, bool) else 300
         return ("swipe", _coord(v, "x1"), _coord(v, "y1"), _coord(v, "x2"), _coord(v, "y2"), ms)
+    if t == "long_press":
+        ms = v.get("ms", 800)
+        ms = min(max(int(ms), 100), 5000) if isinstance(ms, int) and not isinstance(ms, bool) else 800
+        return ("long_press", _coord(v, "x"), _coord(v, "y"), ms)
+    if t == "gesture":
+        if v.get("name") not in GESTURES:
+            raise ValueError(f"Unknown gesture '{v.get('name', '')}'. Use one of: home, app_switcher, control_centre, notification_centre, back")
+        return ("gesture", v["name"])
     if t == "button":
         name = v.get("name", "")
         if name not in BUTTONS:
@@ -84,9 +106,9 @@ def parse_input(v: Any) -> tuple:
         usage = v.get("usage")
         if isinstance(usage, bool) or not isinstance(usage, int) or not 4 <= usage <= 0xE7:
             raise ValueError("'usage' must be a HID keyboard usage (4–231)")
-        if not isinstance(v.get("down"), bool):
+        if "down" in v and not isinstance(v["down"], bool):
             raise ValueError("'down' must be true or false")
-        return ("key", usage, v["down"])
+        return ("key", usage, v.get("down"), v.get("command") is True)
     if t == "text":
         text = v.get("text")
         if not isinstance(text, str):
@@ -99,7 +121,18 @@ def parse_input(v: Any) -> tuple:
     raise ValueError(_KINDS)
 
 
-_KINDS = "'t' must be touch, tap, swipe, button, key, text, keyframe or refresh"
+_KINDS = "'t' must be touch, tap, swipe, long_press, gesture, button, key, text, keyframe or refresh"
+
+
+def is_move(i: tuple) -> bool:
+    """A finger moving: when moves pile up, only the newest needs sending."""
+    return i[0] == "touch" and i[1] == "move"
+
+
+def upright_to_native(u: float, v: float, rotation: int) -> tuple[int, int]:
+    """A point on the upright picture (fractions) -> the phone's native touch coordinates."""
+    x, y = {90: (v, 1 - u), 180: (1 - u, 1 - v), 270: (1 - v, u)}.get(rotation, (u, v))
+    return round(min(max(x, 0), 1) * 65535), round(min(max(y, 0), 1) * 65535)
 
 
 _SHIFTED_DIGITS = "!@#$%^&*()"
@@ -413,6 +446,7 @@ class Screen:
         self.config: Optional[bytes] = None
         self.clients: set[_Client] = set()
         self.sim_inputs: list[tuple] = []
+        self.perf: dict = empty_perf()
         self._live: Optional["_Live"] = None
         self._task: Optional[asyncio.Task] = None
 
@@ -458,7 +492,7 @@ class Screen:
         await self._cancel()
         self.session += 1
         session = self.session
-        self.config, self.sim_inputs = None, []
+        self.config, self.sim_inputs, self.perf = None, [], empty_perf()
         self.status = _status(state="starting", simulated=simulated)
         self._set(session)
         if simulated:
@@ -503,6 +537,13 @@ class Screen:
             raise ScreenError("Reconnecting to the iPhone's screen. Try again in a moment.")
         await live.apply(i)
 
+    def get_perf(self) -> dict:
+        """The phone's latest performance figures; the first call starts measuring them."""
+        live = self._require()
+        if live is not None:
+            live.start_perf()
+        return dict(self.perf)
+
     async def screenshot(self) -> bytes:
         live = self._require()
         if self.status["simulated"]:
@@ -525,7 +566,7 @@ class Screen:
                             ready.set_result(None)
                         await live.loop()
                 except _Restart as r:
-                    self._live = None
+                    self._live, self.perf = None, empty_perf()
                     if r.auto:
                         restarts = restarts + 1 if time.monotonic() - last_restart < 60 else 1
                         last_restart = time.monotonic()
@@ -563,6 +604,31 @@ class _Restart(Exception):
         self.auto = auto
 
 
+def empty_perf() -> dict:
+    """The phone's performance figures, all None until measured: ``cpu`` (% of all cores), ``cores``,
+    ``memory_used``/``memory_total`` (bytes), ``gpu`` (%), ``fps`` (the phone's own frame rate),
+    ``battery_temp`` (°C), ``battery`` (%), ``charging``."""
+    return dict.fromkeys(("cpu", "cores", "memory_used", "memory_total", "gpu", "fps", "battery_temp", "battery", "charging"))
+
+
+def memory(sys_values: dict) -> tuple[Optional[float], Optional[float]]:
+    """Memory in use and in total (bytes) from sysmontap's system figures (page counts, 16 KB pages)."""
+    page = 16384
+
+    def get(k):
+        v = sys_values.get(k)
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    active, wired = get("vmActiveCount"), get("vmWireCount")
+    used = (active + wired + (get("vmCompressorPageCount") or 0)) * page if active is not None and wired is not None else None
+    total = get("physMemSize")
+    if total is None:
+        found = [x for x in (get(k) for k in ("vmFreeCount", "vmActiveCount", "vmInactiveCount", "vmWireCount",
+                                               "vmCompressorPageCount", "vmSpeculativeCount")) if x is not None]
+        total = sum(found) * page if len(found) >= 4 else None
+    return used, total
+
+
 def display_rotation(info: Any) -> int:
     """Clockwise degrees (0, 90, 180, 270) that turn the streamed picture upright, from a
     ``getdisplayinfo`` answer: the built-in display in use, else the primary one."""
@@ -586,6 +652,7 @@ class _Live:
         self.key_requests = 0
         self.depack = Depacketizer()
         self.lock = asyncio.Lock()  # one input at a time on the HID services
+        self.perf_tasks: list[asyncio.Task] = []
         self.info = None
         self.hid = self.indigo = None
         self.held: set[int] = set()
@@ -601,6 +668,8 @@ class _Live:
 
         lockdown = await create_using_usbmux(serial=udid, autopair=True)
         stack.push_async_callback(lockdown.close)
+        self.lockdown = lockdown
+        stack.push_async_callback(self._stop_perf)
         version = lockdown.product_version
         if _major(version) < 27:
             raise ScreenError(f"Screen mirroring needs iOS 27 or newer. This iPhone has iOS {version}.")
@@ -750,6 +819,59 @@ class _Live:
                 if self.a_phone:
                     await self._rtcp(self.audio_rx, self.a_port, _rr_sdes(self.a_ours, self.a_phone, self.a_seq.value or 0))
 
+    # ---- the phone's performance (started by the first request for it)
+    def start_perf(self) -> None:
+        if not self.perf_tasks:
+            self.perf_tasks = [asyncio.create_task(c) for c in (self._cpu_memory(), self._gpu(), self._battery())]
+
+    async def _stop_perf(self) -> None:
+        for t in self.perf_tasks:
+            t.cancel()
+
+    def _perf(self, **kw) -> None:
+        if self.m.session == self.session:
+            self.m.perf.update(kw)
+
+    async def _cpu_memory(self) -> None:
+        from pymobiledevice3.services.dvt.instruments.device_info import DeviceInfo
+        from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
+        from pymobiledevice3.services.dvt.instruments.sysmontap import Sysmontap
+
+        with contextlib.suppress(Exception):
+            async with DvtProvider(self.rsd) as dvt:
+                async with DeviceInfo(dvt) as info:
+                    cores = (await info.hardware_information()).get("numberOfCpus")
+                    attrs = list(await info.sysmon_system_attributes())
+                self._perf(cores=cores)
+                async with Sysmontap(dvt, [], attrs, interval_ms=1000) as tap:
+                    async for row in tap:
+                        load = (row.get("SystemCPUUsage") or {}).get("CPU_TotalLoad")
+                        cpu = None if load is None else min(max(load / max(cores or 1, 1), 0), 100)  # the load adds up all cores
+                        used, total = memory(dict(zip(attrs, row.get("System") or [])))
+                        self._perf(cpu=cpu, memory_used=used, memory_total=total)
+
+    async def _gpu(self) -> None:
+        from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
+        from pymobiledevice3.services.dvt.instruments.graphics import Graphics
+
+        with contextlib.suppress(Exception):
+            async with DvtProvider(self.rsd) as dvt, Graphics(dvt) as graphics:
+                async for sample in graphics:
+                    if isinstance(sample, dict):
+                        self._perf(gpu=sample.get("Device Utilization %"), fps=sample.get("CoreAnimationFramesPerSecond"))
+
+    async def _battery(self) -> None:
+        from pymobiledevice3.services.diagnostics import DiagnosticsService
+
+        with contextlib.suppress(Exception):
+            async with DiagnosticsService(self.lockdown) as diag:
+                while True:
+                    info = await diag.get_battery() or {}  # fills in the temperature from the battery pack on newer iOS
+                    t = info.get("Temperature")
+                    self._perf(battery_temp=None if t is None else t / 100, battery=info.get("CurrentCapacity"),
+                               charging=None if info.get("IsCharging") is None else bool(info["IsCharging"]))
+                    await asyncio.sleep(5)
+
     async def _orientation(self) -> None:
         while True:
             await asyncio.sleep(0.5)
@@ -784,9 +906,29 @@ class _Live:
         kind = i[0]
         if self.hid is None or self.indigo is None:
             raise ScreenError("The iPhone did not accept touch input in this session. Stop and start mirroring again.")
-        if kind == "touch":
+        if kind == "touch" and i[4] is None:
             state = TOUCHSCREEN_STATE_RELEASE if i[1] == "up" else TOUCHSCREEN_STATE_CONTACT
             await self.hid.send_touchscreen(state, i[2], i[3])
+        elif kind == "touch":  # two fingers (pinch): both in every report, with identities that stay the same
+            from pymobiledevice3.remote.core_device.hid_service import TouchscreenContact
+
+            touching = i[1] != "up"
+            (x2, y2) = i[4]
+            await self.hid.send_multitouch([TouchscreenContact(2, i[2], i[3], touching), TouchscreenContact(3, x2, y2, touching)])
+        elif kind == "long_press":
+            await self.hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, i[1], i[2])
+            await asyncio.sleep(i[3] / 1000)
+            await self.hid.send_touchscreen(TOUCHSCREEN_STATE_RELEASE, i[1], i[2])
+        elif kind == "gesture":
+            (u1, v1), (u2, v2), secs, hold = GESTURES[i[1]]
+            rotation = self.m.status.get("rotation") or 0
+            steps = max(round(secs / 0.016), 2)
+            for n in range(steps + 1):
+                f = n / steps
+                await self.hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, *upright_to_native(u1 + (u2 - u1) * f, v1 + (v2 - v1) * f, rotation))
+                await asyncio.sleep(0.016)
+            await asyncio.sleep(hold)
+            await self.hid.send_touchscreen(TOUCHSCREEN_STATE_RELEASE, *upright_to_native(u2, v2, rotation))
         elif kind == "tap":
             await self.hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, i[1], i[2])
             await asyncio.sleep(0.05)
@@ -804,9 +946,15 @@ class _Live:
             await self.indigo.send_button(page, usage, HID_BUTTON_STATE_DOWN)
             await asyncio.sleep(hold)
             await self.indigo.send_button(page, usage, HID_BUTTON_STATE_UP)
-        elif kind == "key":
+        elif kind == "key" and i[2] is not None and not i[3]:
             (self.held.add if i[2] else self.held.discard)(i[1])
             await self._keys(self.held)
+        elif kind == "key":
+            keys = {COMMAND, i[1]} if i[3] else {i[1]}
+            if i[2] is not False:
+                await self._keys(self.held | keys)
+            if i[2] is not True:
+                await self._keys(self.held - keys)
         elif kind == "text":
             for ch in i[1]:
                 u = char_usage(ch)

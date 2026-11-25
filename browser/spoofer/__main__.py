@@ -110,9 +110,16 @@ def main() -> None:
     ap.add_argument("--version", action="store_true")
     ap.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--wait-pid", type=int, help=argparse.SUPPRESS)
+    ap.add_argument("--mcp", action="store_true", help="connect an AI app (MCP over stdio) to the running app")
     args = ap.parse_args()
 
     from spoofer import __version__
+
+    if args.mcp:
+        from spoofer.mcp import bridge
+
+        bridge(args.port if "--port" in sys.argv else None)
+        return
 
     if args.version:
         print(__version__)

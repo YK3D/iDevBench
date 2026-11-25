@@ -55,8 +55,13 @@ idevice = { version = "=0.1.68", default-features = false, features = [
     "amfi",
     "pair",
     "display_stream",
+    "sysmontap",
+    "device_info",
+    "diagnostics_relay",
 ] }
 uuid = "1"
+base64 = "0.22"
+tower = { version = "0.5", features = ["util"] }
 tao = { version = "0.34", optional = true }
 wry = { version = "0.53", optional = true }
 png = { version = "0.17", optional = true }

@@ -71,6 +71,18 @@
     <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M19.5 4.5L11 13"/><path d="M18 14v4a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 18V8a1.5 1.5 0 0 1 1.5-1.5h4"/></symbol>
     <symbol id="i-screen" viewBox="0 0 24 24"><rect x="6.5" y="2.8" width="11" height="18.4" rx="2.4"/><rect x="8.6" y="5.6" width="6.8" height="10.6" rx=".6"/><path d="M10.8 18.6h2.4"/></symbol>
     <symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle fill="currentColor" stroke="none" cx="12" cy="12" r="3.6"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M4.5 10.5L12 4l7.5 6.5V19a1 1 0 0 1-1 1H14v-5.5h-4V20H5.5a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-vol-up" viewBox="0 0 24 24"><path d="M3.5 9.5h3l4-3.5v12l-4-3.5h-3z"/><path d="M15 12h5.5M17.75 9.25v5.5"/></symbol>
+    <symbol id="i-vol-down" viewBox="0 0 24 24"><path d="M3.5 9.5h3l4-3.5v12l-4-3.5h-3z"/><path d="M15 12h5.5"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M3.5 9.5h3l4-3.5v12l-4-3.5h-3z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 11v2M7.5 8.5v7M11 5.5v13M14.5 8v8M18 10v4"/></symbol>
+    <symbol id="i-cards" viewBox="0 0 24 24"><rect x="8.5" y="4" width="10" height="14" rx="1.8"/><path d="M5.5 7v11.5A1.5 1.5 0 0 0 7 20h8"/></symbol>
+    <symbol id="i-toggles" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="6.5" rx="3.25"/><circle cx="16.75" cy="7.75" r="1.6"/><rect x="4" y="13" width="16" height="6.5" rx="3.25"/><circle cx="7.25" cy="16.25" r="1.6"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 0 2.1-5"/><path d="M5 4.5V8h3.5"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.5-2h5.6l1.5 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.8" r="3.3"/></symbol>
+    <symbol id="i-bars" viewBox="0 0 24 24"><path d="M5 19.5v-6M10 19.5V5M15 19.5v-9M20 19.5v-12"/></symbol>
     <symbol id="i-start" viewBox="0 0 24 24"><path d="M5 20V4M5 4.5h10.5l-2.5 4 2.5 4H5"/></symbol>
   </defs>
 </svg>
@@ -97,7 +109,7 @@
     <!-- ============ SECTIONS: location tools, or the iPhone's screen ============ -->
     <nav class="seg modes" id="modes" role="tablist" aria-label="Section">
       <button type="button" role="tab" data-mode="location" class="active"><svg class="ico"><use href="#i-pin"/></svg>Location</button>
-      <button type="button" role="tab" data-mode="screen" data-action="screen" title="Screen mirroring"><svg class="ico"><use href="#i-screen"/></svg>Screen</button>
+      <button type="button" role="tab" data-mode="screen" data-action="screen" title="Mirroring"><svg class="ico"><use href="#i-screen"/></svg>Mirroring</button>
     </nav>
 
     <!-- ============ DEVICE ============ -->
@@ -449,18 +461,11 @@
     <!-- ============ SCREEN (its own section, see the switch at the top) ============ -->
     <div id="screen-panel" hidden>
       <details class="section" id="sec-mirror" open>
-        <summary><svg class="ico sec-ico"><use href="#i-screen"/></svg><span class="sec-title">Screen mirroring</span></summary>
+        <summary><svg class="ico sec-ico"><use href="#i-screen"/></svg><span class="sec-title">Mirroring</span></summary>
         <div class="sec-body">
-          <p class="hint">Shows the iPhone's screen. Click to tap, drag to swipe, scroll with the mouse wheel, right-click for Home. The buttons next to the screen press the iPhone's buttons and do the system gestures. Needs iOS 27 or newer, Developer Mode and the cable; uses the device chosen above.</p>
           <label class="check"><input id="mirror-audio" type="checkbox" checked> Play the iPhone's sound</label>
           <button id="btn-mirror" class="primary">Start mirroring</button>
           <div id="mirror-status" class="status">Not mirroring</div>
-          <div class="field-row">
-            <label class="grow">Type on the iPhone <input id="mirror-text" placeholder="Text to type (English keyboard)"></label>
-            <button id="btn-mirror-type">Send</button>
-          </div>
-          <p class="hint">Or click the screen and type: your keys go to the iPhone until you press Esc or click outside it. Ctrl acts as the iPhone's ⌘ (Ctrl+C copies, Ctrl+V pastes on the phone).</p>
-          <p class="hint">Screenshots and recordings are saved to <span id="capture-folder-hint">your Downloads folder</span>. Change it in <a href="#" id="link-capture-settings">Settings › Screen</a>.</p>
         </div>
       </details>
     </div>
@@ -498,30 +503,31 @@
     <div class="mirror-stage">
       <div class="mirror-screen" id="mirror-screen">
         <canvas id="mirror-canvas" tabindex="0" aria-label="The iPhone's screen. Click to tap; type to send keys."></canvas>
-        <span id="mirror-touch" class="mirror-touch" hidden></span>
+        <canvas id="mirror-trail" class="mirror-trail" aria-hidden="true"></canvas>
+        <span id="mirror-cursor" class="mirror-cursor" hidden></span>
         <div id="mirror-stats" class="mirror-stats" hidden></div>
+        <div class="mirror-skeleton"><p id="mirror-empty" class="mirror-empty">Press Start mirroring to see the iPhone's screen here.</p></div>
       </div>
       <div class="mirror-tools" id="mirror-tools" role="toolbar" aria-label="iPhone buttons and gestures" aria-orientation="vertical">
-        <button data-button="home" title="Home">Home</button>
-        <button data-button="lock" title="Lock / wake (side button)">Lock</button>
-        <button data-button="volume-up" title="Volume up">Vol +</button>
-        <button data-button="volume-down" title="Volume down">Vol −</button>
-        <button data-button="mute" title="Mute">Mute</button>
-        <button data-button="siri" title="Hold for Siri">Siri</button>
+        <button data-button="home" title="Home button"><svg class="ico"><use href="#i-home"/></svg><span>Home</span></button>
+        <button data-button="lock" title="Side button: lock or wake"><svg class="ico"><use href="#i-lock"/></svg><span>Lock</span></button>
+        <button data-button="volume-up" title="Volume up"><svg class="ico"><use href="#i-vol-up"/></svg><span>Volume up</span></button>
+        <button data-button="volume-down" title="Volume down"><svg class="ico"><use href="#i-vol-down"/></svg><span>Volume down</span></button>
+        <button data-button="mute" title="Mute"><svg class="ico"><use href="#i-mute"/></svg><span>Mute</span></button>
+        <button data-button="siri" title="Hold the side button for Siri"><svg class="ico"><use href="#i-wave"/></svg><span>Siri</span></button>
         <hr>
-        <button data-gesture="switcher" title="App switcher (swipe up and hold)">Apps</button>
-        <button data-gesture="control" title="Control Centre (swipe down from the top right)">Control</button>
-        <button data-gesture="notices" title="Notification Centre (swipe down from the top left)">Alerts</button>
-        <button data-gesture="back" title="Back (swipe in from the left edge)">Back</button>
+        <button data-gesture="app_switcher" title="Swipe up and hold: the open apps"><svg class="ico"><use href="#i-cards"/></svg><span>App switcher</span></button>
+        <button data-gesture="control_centre" title="Swipe down from the top right"><svg class="ico"><use href="#i-toggles"/></svg><span>Control Centre</span></button>
+        <button data-gesture="notification_centre" title="Swipe down from the top left"><svg class="ico"><use href="#i-bell"/></svg><span>Notifications</span></button>
+        <button data-gesture="back" title="Swipe in from the left edge"><svg class="ico"><use href="#i-back"/></svg><span>Back</span></button>
         <hr>
-        <button id="btn-mirror-rotate" title="Turn the picture by 90° (if it doesn't follow the iPhone by itself)">Rotate</button>
-        <button id="btn-mirror-refresh" title="Restart the picture if it froze">Refresh</button>
-        <button id="btn-mirror-shot" title="Save a screenshot">Shot</button>
-        <button id="btn-mirror-rec" title="Record the screen and sound"><span>Record</span></button>
-        <button id="btn-mirror-stats" title="Show frame rate, data rate and delay">Stats</button>
+        <button id="btn-mirror-rotate" title="Turn the picture by 90° (if it doesn't follow the iPhone)"><svg class="ico"><use href="#i-rotate"/></svg><span>Rotate</span></button>
+        <button id="btn-mirror-refresh" title="Restart the picture if it froze"><svg class="ico"><use href="#i-refresh"/></svg><span>Restart stream</span></button>
+        <button id="btn-mirror-shot" title="Save a screenshot"><svg class="ico"><use href="#i-camera"/></svg><span>Screenshot</span></button>
+        <button id="btn-mirror-rec" title="Record the screen and sound"><svg class="ico"><use href="#i-rec"/></svg><span>Record</span></button>
+        <button id="btn-mirror-stats" title="Frame rate, data rate, and the iPhone's CPU, memory, GPU and temperature"><svg class="ico"><use href="#i-bars"/></svg><span>Stats</span></button>
       </div>
     </div>
-    <p id="mirror-empty" class="mirror-empty">Press Start mirroring to see the iPhone's screen here.</p>
   </section>
 </div>
 
@@ -534,7 +540,7 @@
       <button type="button" data-pane="keys">Shortcuts</button>
       <button type="button" data-pane="google">Google Maps</button>
       <button type="button" data-pane="offline">Offline maps</button>
-      <button type="button" data-pane="screen">Screen</button>
+      <button type="button" data-pane="screen">Mirroring</button>
       <button type="button" data-pane="updates">Updates</button>
       <button type="button" data-pane="about">About</button>
     </nav>
@@ -602,9 +608,10 @@
     </section>
     <section class="pane" data-pane="screen" hidden>
       <label>Save screenshots and recordings to
-        <input id="capture-folder" type="text" autocomplete="off" spellcheck="false" placeholder="Downloads folder">
+        <span class="field-row"><input id="capture-folder" class="grow" type="text" autocomplete="off" spellcheck="false" placeholder="Downloads folder">
+        <button id="btn-capture-browse" type="button" class="fixed">Browse…</button></span>
       </label>
-      <p class="hint">Type or paste a folder, for example <code>C:\Users\you\Pictures\iPhone</code>. Leave it empty for your Downloads folder. A folder that doesn't exist yet is created.</p>
+      <p class="hint">Leave it empty for your Downloads folder.</p>
     </section>
     <section class="pane" data-pane="updates" hidden>
       <label>Update channel

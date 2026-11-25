@@ -1717,6 +1717,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "chrono",
  "dirs",
  "fdk-aac",
@@ -1741,6 +1742,7 @@ dependencies = [
  "tao",
  "thiserror 2.0.21",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
  "url",

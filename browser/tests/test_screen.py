@@ -95,12 +95,21 @@ def test_loss_holds_frames_until_keyframe():
 
 
 def test_inputs_and_keys():
-    assert mi.parse_input({"t": "touch", "phase": "down", "x": 0.5, "y": 1}) == ("touch", "down", 32768, 65535)
+    assert mi.parse_input({"t": "touch", "phase": "down", "x": 0.5, "y": 1}) == ("touch", "down", 32768, 65535, None)
+    assert mi.parse_input({"t": "touch", "phase": "move", "x": 0, "y": 0, "x2": 1, "y2": 0.5}) == ("touch", "move", 0, 0, (65535, 32768))
+    assert mi.parse_input({"t": "gesture", "name": "back"}) == ("gesture", "back")
+    assert mi.parse_input({"t": "long_press", "x": 0, "y": 0}) == ("long_press", 0, 0, 800)
+    assert mi.parse_input({"t": "key", "usage": 4, "command": True}) == ("key", 4, None, True)
+    assert [mi.upright_to_native(0.25, 0, 0), mi.upright_to_native(0, 0.25, 90), mi.upright_to_native(1, 1, 180),
+            mi.upright_to_native(0, 0.25, 270)] == [(16384, 0), (16384, 65535), (0, 0), (49151, 0)]
+    assert mi.memory({"vmActiveCount": 10, "vmWireCount": 5, "vmFreeCount": 5, "vmInactiveCount": 4}) == (15 * 16384, 24 * 16384)
+    assert mi.memory({}) == (None, None)
     assert mi.parse_input({"t": "swipe", "x1": 0, "y1": 0, "x2": 1, "y2": 1})[-1] == 300
-    assert mi.parse_input({"t": "key", "usage": 40, "down": False}) == ("key", 40, False)
+    assert mi.parse_input({"t": "key", "usage": 40, "down": False}) == ("key", 40, False, False)
     assert mi.parse_input({"t": "refresh"}) == ("refresh",)
     for bad in ({"t": "tap", "x": 1.5, "y": 0}, {"t": "tap", "x": "0.2", "y": 0}, {"t": "touch", "phase": "hover", "x": 0, "y": 0},
-                {"t": "button", "name": "power"}, {"t": "key", "usage": 1, "down": True}, {"t": "fly"}, []):
+                {"t": "button", "name": "power"}, {"t": "key", "usage": 1, "down": True}, {"t": "fly"}, [],
+                {"t": "key", "usage": 4, "down": "yes"}, {"t": "touch", "phase": "down", "x": 0, "y": 0, "x2": 0.5}, {"t": "gesture", "name": "spin"}):
         with pytest.raises(ValueError):
             mi.parse_input(bad)
     assert [mi.char_usage(c) for c in "aZ0(?/"] == [(4, False), (0x1D, True), (0x27, False), (0x26, True), (0x38, True), (0x38, False)]

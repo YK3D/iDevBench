@@ -47,7 +47,7 @@ pub fn friendly(e: &IdeviceError) -> String {
         }
         IdeviceError::PairingDialogResponsePending => "Tap Trust on the iPhone, enter the passcode, then try again.".into(),
         IdeviceError::UserDeniedPairing => "The iPhone refused to trust this computer. Unplug, plug back in and tap Trust.".into(),
-        IdeviceError::PasswordProtected => "Unlock the iPhone and try again.".into(),
+        IdeviceError::PasswordProtected | IdeviceError::DeviceLocked => "The iPhone is locked. Unlock it and try again.".into(),
         IdeviceError::DeveloperModeNotEnabled => {
             "Developer Mode is off. Use 'Reveal Developer Mode', then turn it on in Settings › Privacy & Security.".into()
         }
@@ -210,6 +210,9 @@ pub(crate) async fn ensure_ddi(provider: &UsbmuxdProvider, version: &str, chip_i
             .await
             .map_err(|e| {
                 // iPhones newer than the image only take it as a cryptex, which this app can't install yet.
+                if matches!(e, IdeviceError::DeviceLocked | IdeviceError::PasswordProtected) {
+                    return format!("Could not mount the Developer Disk Image: {}", friendly(&e));
+                }
                 let hint = if major(version) >= 27 { " If this keeps failing, mount it once with Xcode or the browser edition." } else { "" };
                 format!("Could not mount the Developer Disk Image: {}.{hint}", friendly(&e))
             })?;
@@ -244,6 +247,7 @@ impl IdeviceDriver {
         match ensure_ddi(&provider, &version, chip).await {
             Ok(Some(n)) => notes.push(n),
             Ok(None) => {}
+            Err(e) if e.contains("is locked") => notes.push(e),
             Err(e) => notes.push(format!("{e} If setting a location fails, check Developer Mode and the internet connection.")),
         }
 

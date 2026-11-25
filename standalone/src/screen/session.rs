@@ -8,15 +8,23 @@ use idevice::{
     core_device::{
         build_keyframe_request, build_liveness, build_screen_audio_offer, build_screen_video_offer, build_start_audio_parameters,
         build_start_video_parameters, is_rtcp, ButtonState, CallInfoBlob, CoreDeviceServiceClient, DisplayServiceClient, IndigoHidClient,
-        ReportBlock, RtpPacket, UniversalHidServiceClient, TOUCHSCREEN_STATE_CONTACT, TOUCHSCREEN_STATE_RELEASE,
+        ReportBlock, RtpPacket, TouchscreenContact, UniversalHidServiceClient, TOUCHSCREEN_STATE_CONTACT, TOUCHSCREEN_STATE_RELEASE,
     },
     core_device_proxy::CoreDeviceProxy,
-    dvt::{remote_server::RemoteServerClient, screenshot::ScreenshotClient},
+    diagnostics_relay::DiagnosticsRelayClient,
+    dvt::{
+        device_info::DeviceInfoClient,
+        message::AuxValue,
+        remote_server::RemoteServerClient,
+        screenshot::ScreenshotClient,
+        sysmontap::{SysmontapClient, SysmontapConfig},
+    },
     lockdown::LockdownClient,
-    provider::{IdeviceProvider, RsdProvider},
+    provider::{IdeviceProvider, RsdProvider, UsbmuxdProvider},
     rsd::RsdHandshake,
-    IdeviceService, ReadWrite, RsdService,
+    IdeviceError, IdeviceService, ReadWrite, RsdService,
 };
+use serde_json::json;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
@@ -28,6 +36,7 @@ const MEDIA_IN_USE: &str = "9022";
 
 type Hid = UniversalHidServiceClient<Box<dyn ReadWrite>>;
 type Indigo = IndigoHidClient<Box<dyn ReadWrite>>;
+type Rs = RemoteServerClient<Box<dyn ReadWrite>>;
 
 /// Unanswered keyframe requests (while the picture is broken) before the stream is restarted;
 /// iOS 27's encoder sometimes stops answering them, and a fresh stream always opens with one.
@@ -65,6 +74,7 @@ pub(super) async fn run(
                         break Err("The iPhone stopped sending its screen. Unlock it, then start mirroring again.".to_string());
                     }
                 }
+                m.reset_perf(session);
                 m.set(session, |s| s.note = Some("Reconnecting to the iPhone's screen…".into()));
             }
             Ok(Ended::Stopped) => break Ok(()),
@@ -173,14 +183,19 @@ async fn stream(
     tokio::time::sleep(Duration::from_millis(300)).await;
     let hid: Option<Hid> = UniversalHidServiceClient::connect_rsd(&mut adapter, &mut hs).await.ok();
     let indigo: Option<Indigo> = IndigoHidClient::connect_rsd(&mut adapter, &mut hs).await.ok();
-    // Which way the screen is turned; without it the picture stays upright and the Rotate button helps.
-    let mut info = match hs.services.get("com.apple.coredevice.deviceinfo").map(|s| s.port) {
+    // Which way the screen is turned, asked on its own task so a slow answer never holds up the
+    // picture or input; without it the picture stays upright and the Rotate button helps.
+    let info = match hs.services.get("com.apple.coredevice.deviceinfo").map(|s| s.port) {
         Some(port) => match adapter.connect_to_service_port(port).await {
             Ok(stream) => CoreDeviceServiceClient::new(stream).await.ok(),
             Err(_) => None,
         },
         None => None,
     };
+    let mut tasks = Vec::new();
+    if let Some(info) = info {
+        tasks.push(tokio::task::spawn_local(follow_rotation(m.clone(), session, info)));
+    }
     let mut decoder = if audio_on { audio::Decoder::new() } else { None };
     let mut note = Vec::new();
     if hid.is_none() || indigo.is_none() {
@@ -200,12 +215,14 @@ async fn stream(
     // Input runs on its own task, in order: a held button (Siri: 1 s), a swipe or typing must
     // not stop the picture from being received meanwhile.
     let (input_tx, mut input_rx) = mpsc::unbounded_channel::<(Input, oneshot::Sender<Result<(), String>>)>();
-    let input_task = tokio::task::spawn_local(async move {
+    let mi = m.clone();
+    tasks.push(tokio::task::spawn_local(async move {
         let (mut hid, mut indigo) = (hid, indigo);
         while let Some((i, r)) = input_rx.recv().await {
-            let _ = r.send(apply(i, hid.as_mut(), indigo.as_mut()).await);
+            let rotation = mi.status().rotation;
+            let _ = r.send(apply(i, hid.as_mut(), indigo.as_mut(), rotation).await);
         }
-    });
+    }));
 
     let started = Instant::now();
     let mut depack = hevc::Depacketizer::new();
@@ -216,9 +233,7 @@ async fn stream(
     // gets one now and then for new viewers. Only the first kind counts towards a restart.
     let (mut want_key, mut refresh, mut key_requests) = (true, false, 0u32);
     let mut tick = tokio::time::interval(Duration::from_secs(1));
-    let mut orient_tick = tokio::time::interval(Duration::from_millis(500));
     let (mut last_video, mut last_dgram) = (Instant::now(), Instant::now());
-    let mut rotation = 0u16;
 
     let result = loop {
         let broken = want_key || depack.waiting_for_key;
@@ -286,25 +301,6 @@ async fn stream(
                     last_video = Instant::now();
                 }
             }
-            _ = orient_tick.tick(), if info.is_some() => {
-                let answer = match info.as_mut() {
-                    Some(c) => tokio::time::timeout(Duration::from_millis(800), c.invoke("com.apple.coredevice.feature.getdisplayinfo", None))
-                        .await
-                        .ok()
-                        .and_then(Result::ok),
-                    None => None,
-                };
-                match answer {
-                    Some(v) => {
-                        let r = display_rotation(&v);
-                        if r != rotation {
-                            rotation = r;
-                            m.set(session, |s| s.rotation = r);
-                        }
-                    }
-                    None => info = None, // not supported by this iPhone: stop asking
-                }
-            }
             cmd = rx.recv() => match cmd {
                 None => break Ok(Ended::Stopped),
                 Some(Cmd::Input(Input::KeyFrame, r)) => { want_key = true; let _ = r.send(Ok(())); }
@@ -315,10 +311,11 @@ async fn stream(
                 Some(Cmd::Screenshot(r)) => {
                     let _ = r.send(screenshot(&mut adapter, &mut hs).await);
                 }
+                Some(Cmd::StartPerf) => tasks.extend(start_perf(m, session, &mut adapter, &mut hs, &provider).await),
             }
         }
     };
-    input_task.abort();
+    tasks.iter().for_each(|t| t.abort());
     let _ = display.stop_media_stream().await;
     result
 }
@@ -344,19 +341,74 @@ async fn key(indigo: &mut Indigo, usage: u64, shift: bool) -> Result<(), idevice
     Ok(())
 }
 
-async fn apply(i: Input, hid: Option<&mut Hid>, indigo: Option<&mut Indigo>) -> Result<(), String> {
+/// A point on the upright picture (fractions) -> the phone's native touch coordinates.
+fn upright_to_native(u: f64, v: f64, rotation: u16) -> (u16, u16) {
+    let (x, y) = match rotation {
+        90 => (v, 1.0 - u),
+        180 => (1.0 - u, 1.0 - v),
+        270 => (1.0 - v, u),
+        _ => (u, v),
+    };
+    ((x.clamp(0.0, 1.0) * 65535.0).round() as u16, (y.clamp(0.0, 1.0) * 65535.0).round() as u16)
+}
+
+async fn gesture(hid: &mut Hid, name: &str, rotation: u16) -> Result<(), IdeviceError> {
+    let Some(&(_, (u1, v1), (u2, v2), ms, hold)) = super::GESTURES.iter().find(|g| g.0 == name) else { return Ok(()) };
+    let steps = (ms / 16).max(2);
+    let at = |f: f64| upright_to_native(u1 + (u2 - u1) * f, v1 + (v2 - v1) * f, rotation);
+    for n in 0..=steps {
+        let (x, y) = at(n as f64 / steps as f64);
+        hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, x, y, None).await?;
+        tokio::time::sleep(Duration::from_millis(16)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(hold)).await;
+    let (x, y) = at(1.0);
+    hid.send_touchscreen(TOUCHSCREEN_STATE_RELEASE, x, y, None).await
+}
+
+async fn apply(i: Input, hid: Option<&mut Hid>, indigo: Option<&mut Indigo>, rotation: u16) -> Result<(), String> {
     const NO_CONTROL: &str = "The iPhone did not accept touch input in this session. Stop and start mirroring again.";
+    const COMMAND: u64 = 0xE3;
     let r = match i {
-        Input::Touch { phase, x, y } => {
+        Input::Touch { phase, x, y, second: None } => {
             let state = if phase == Phase::Up { TOUCHSCREEN_STATE_RELEASE } else { TOUCHSCREEN_STATE_CONTACT };
             hid.ok_or(NO_CONTROL)?.send_touchscreen(state, x, y, None).await
         }
+        // Two fingers (pinch): both in every report, with identities that stay the same.
+        Input::Touch { phase, x, y, second: Some((x2, y2)) } => {
+            let touching = phase != Phase::Up;
+            let contacts = [TouchscreenContact { identity: 2, touching, x, y }, TouchscreenContact { identity: 3, touching, x: x2, y: y2 }];
+            hid.ok_or(NO_CONTROL)?.send_multitouch(&contacts, None).await
+        }
+        Input::LongPress { x, y, ms } => {
+            let hid = hid.ok_or(NO_CONTROL)?;
+            hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, x, y, None).await.map_err(|e| idev::friendly(&e))?;
+            tokio::time::sleep(Duration::from_millis(ms)).await;
+            hid.send_touchscreen(TOUCHSCREEN_STATE_RELEASE, x, y, None).await
+        }
+        Input::Gesture(name) => gesture(hid.ok_or(NO_CONTROL)?, name, rotation).await,
         Input::Tap { x, y } => hid.ok_or(NO_CONTROL)?.tap(x, y).await,
         // ~60 samples a second, so the phone sees a drag with a speed rather than a tap.
         Input::Swipe { x1, y1, x2, y2, ms } => hid.ok_or(NO_CONTROL)?.drag(x1, y1, x2, y2, (ms / 16).max(2) as u32, 16).await,
         Input::Button(_, page, usage, hold) => press(indigo.ok_or(NO_CONTROL)?, page, usage, hold).await,
-        Input::Key { usage, down } => {
+        Input::Key { usage, down: Some(down), command: false } => {
             indigo.ok_or(NO_CONTROL)?.send_keyboard(usage, if down { ButtonState::Down } else { ButtonState::Up }).await
+        }
+        Input::Key { usage, down, command } => {
+            let indigo = indigo.ok_or(NO_CONTROL)?;
+            let keys: &[u64] = if command { &[COMMAND, usage] } else { &[usage] };
+            let mut r = Ok(());
+            if down != Some(false) {
+                for &k in keys {
+                    r = r.and(indigo.send_keyboard(k, ButtonState::Down).await);
+                }
+            }
+            if down != Some(true) {
+                for &k in keys.iter().rev() {
+                    r = r.and(indigo.send_keyboard(k, ButtonState::Up).await);
+                }
+            }
+            r
         }
         Input::Text(text) => {
             let indigo = indigo.ok_or(NO_CONTROL)?;
@@ -370,6 +422,132 @@ async fn apply(i: Input, hid: Option<&mut Hid>, indigo: Option<&mut Indigo>) -> 
         Input::KeyFrame | Input::Refresh => Ok(()),
     };
     r.map_err(|e| idev::friendly(&e))
+}
+
+/// Asks which way the screen is turned twice a second, until the phone stops answering.
+async fn follow_rotation(m: Arc<Screen>, session: u64, mut info: CoreDeviceServiceClient<Box<dyn ReadWrite>>) {
+    let mut rotation = 0;
+    loop {
+        let answer = tokio::time::timeout(Duration::from_secs(3), info.invoke("com.apple.coredevice.feature.getdisplayinfo", None)).await;
+        let Ok(Ok(v)) = answer else { return };
+        let r = display_rotation(&v);
+        if r != rotation {
+            rotation = r;
+            m.set(session, |s| s.rotation = r);
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+/// Starts measuring CPU and memory, GPU, and the battery, each on its own connection and task
+/// (a part the phone refuses stays null).
+async fn start_perf(
+    m: &Arc<Screen>,
+    session: u64,
+    adapter: &mut idevice::tcp::handle::AdapterHandle,
+    hs: &mut RsdHandshake,
+    provider: &UsbmuxdProvider,
+) -> Vec<tokio::task::JoinHandle<()>> {
+    let mut tasks = Vec::new();
+    if let Ok(rs) = RemoteServerClient::connect_rsd(adapter, hs).await {
+        let m = m.clone();
+        tasks.push(tokio::task::spawn_local(async move { let _ = cpu_memory(&m, session, rs).await; }));
+    }
+    if let Ok(rs) = RemoteServerClient::connect_rsd(adapter, hs).await {
+        let m = m.clone();
+        tasks.push(tokio::task::spawn_local(async move { let _ = gpu(&m, session, rs).await; }));
+    }
+    if let Ok(d) = DiagnosticsRelayClient::connect(provider).await {
+        tasks.push(tokio::task::spawn_local(battery(m.clone(), session, d)));
+    }
+    tasks
+}
+
+fn num(v: Option<&plist::Value>) -> Option<f64> {
+    match v? {
+        plist::Value::Integer(i) => i.as_signed().map(|i| i as f64).or_else(|| i.as_unsigned().map(|u| u as f64)),
+        plist::Value::Real(f) => Some(*f),
+        plist::Value::Boolean(b) => Some(*b as u8 as f64),
+        _ => None,
+    }
+}
+
+/// Memory in use and in total (bytes) from sysmontap's system figures (page counts, 16 KB pages).
+fn memory(sys: &std::collections::HashMap<String, plist::Value>) -> (Option<f64>, Option<f64>) {
+    const PAGE: f64 = 16384.0;
+    let pages = |k: &str| num(sys.get(k));
+    let used = match (pages("vmActiveCount"), pages("vmWireCount")) {
+        (Some(a), Some(w)) => Some((a + w + pages("vmCompressorPageCount").unwrap_or(0.0)) * PAGE),
+        _ => None,
+    };
+    let total = num(sys.get("physMemSize")).or_else(|| {
+        let parts = ["vmFreeCount", "vmActiveCount", "vmInactiveCount", "vmWireCount", "vmCompressorPageCount", "vmSpeculativeCount"];
+        let found: Vec<f64> = parts.iter().filter_map(|k| pages(k)).collect();
+        (found.len() >= 4).then(|| found.iter().sum::<f64>() * PAGE)
+    });
+    (used, total)
+}
+
+async fn cpu_memory(m: &Arc<Screen>, session: u64, mut rs: Rs) -> Result<(), IdeviceError> {
+    rs.read_message(0).await?;
+    let (cores, attrs) = {
+        let mut info = DeviceInfoClient::new(&mut rs).await?;
+        let hw = info.hardware_information().await.ok();
+        (hw.and_then(|h| num(h.get("numberOfCpus"))), info.sysmon_system_attributes().await?)
+    };
+    m.update_perf(session, |p| p["cores"] = json!(cores));
+    let mut tap = SysmontapClient::new(&mut rs).await?;
+    tap.set_config(&SysmontapConfig { interval_ms: 1000, process_attributes: Vec::new(), system_attributes: attrs.clone() }).await?;
+    tap.start().await?;
+    loop {
+        let s = tap.next_sample().await?;
+        // CPU_TotalLoad adds up all cores (200 = two cores busy).
+        let load = s.system_cpu_usage.as_ref().and_then(|d| num(d.get("CPU_TotalLoad")));
+        let cpu = load.map(|l| (l / cores.unwrap_or(1.0).max(1.0)).clamp(0.0, 100.0));
+        let sys = s.system.map(|v| attrs.iter().cloned().zip(v).collect()).unwrap_or_default();
+        let (used, total) = memory(&sys);
+        m.update_perf(session, |p| {
+            p["cpu"] = json!(cpu);
+            p["memory_used"] = json!(used);
+            p["memory_total"] = json!(total);
+        });
+    }
+}
+
+async fn gpu(m: &Arc<Screen>, session: u64, mut rs: Rs) -> Result<(), IdeviceError> {
+    rs.read_message(0).await?;
+    let mut ch = rs.make_channel("com.apple.instruments.server.services.graphics.opengl").await?;
+    ch.call_method(Some(plist::Value::String("startSamplingAtTimeInterval:".into())), Some(vec![AuxValue::Double(0.0)]), true).await?;
+    ch.read_message().await?;
+    loop {
+        let Some(d) = ch.read_message().await?.data.and_then(|v| v.into_dictionary()) else { continue };
+        let (gpu, fps) = (num(d.get("Device Utilization %")), num(d.get("CoreAnimationFramesPerSecond")));
+        if gpu.is_some() || fps.is_some() {
+            m.update_perf(session, |p| {
+                p["gpu"] = json!(gpu);
+                p["fps"] = json!(fps);
+            });
+        }
+    }
+}
+
+/// Battery level, charging and temperature every 5 s (newer iOS keeps the temperature on the battery pack).
+async fn battery(m: Arc<Screen>, session: u64, mut d: DiagnosticsRelayClient) {
+    loop {
+        let Ok(Some(info)) = d.ioregistry(None, None, Some("IOPMPowerSource")).await else { return };
+        let mut temp = num(info.get("Temperature"));
+        if temp.is_none() {
+            if let Ok(Some(pack)) = d.ioregistry(None, None, Some("AppleSmartBatteryPack")).await {
+                temp = num(pack.get("BatteryData").and_then(|b| b.as_dictionary()).and_then(|b| b.get("Temperature")));
+            }
+        }
+        m.update_perf(session, |p| {
+            p["battery_temp"] = json!(temp.map(|t| t / 100.0));
+            p["battery"] = json!(num(info.get("CurrentCapacity")));
+            p["charging"] = json!(info.get("IsCharging").and_then(|v| v.as_boolean()));
+        });
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
 }
 
 /// Clockwise degrees (0, 90, 180, 270) that turn the streamed picture upright, from a
@@ -413,6 +591,24 @@ mod tests {
             s.add(seq);
         }
         assert_eq!(s.0, Some(0x1_0002));
+    }
+
+    #[test]
+    fn upright_points_map_to_the_native_screen() {
+        assert_eq!(upright_to_native(0.25, 0.0, 0), (16384, 0));
+        assert_eq!(upright_to_native(0.0, 0.25, 90), (16384, 65535));
+        assert_eq!(upright_to_native(1.0, 1.0, 180), (0, 0));
+        assert_eq!(upright_to_native(0.0, 0.25, 270), (49151, 0));
+    }
+
+    #[test]
+    fn memory_from_page_counts() {
+        let sys: std::collections::HashMap<String, plist::Value> = [("vmActiveCount", 10u64), ("vmWireCount", 5), ("vmFreeCount", 5), ("vmInactiveCount", 4)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), plist::Value::Integer(v.into())))
+            .collect();
+        assert_eq!(memory(&sys), (Some(15.0 * 16384.0), Some(24.0 * 16384.0)));
+        assert_eq!(memory(&Default::default()), (None, None));
     }
 
     #[test]

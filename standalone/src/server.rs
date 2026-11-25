@@ -166,6 +166,9 @@ pub fn router(app: App) -> Router {
         .route("/api/screen/ws", get(screen_ws))
         // Recordings can be long; they come from the app's own page.
         .route("/api/screen/save", post(screen_save).layer(DefaultBodyLimit::max(2 << 30)))
+        .route("/api/screen/perf", get(screen_perf))
+        .route("/api/pick-folder", post(pick_folder))
+        .route("/mcp", post(mcp).get(|| async { (StatusCode::METHOD_NOT_ALLOWED, "Send MCP messages with POST.") }))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(axum::middleware::from_fn(local_only))
         .with_state(app)
@@ -272,6 +275,157 @@ async fn screen_save(State(app): State<App>, Query(q): Query<SaveQ>, body: axum:
     Ok(Json(json!({"path": path.display().to_string()})))
 }
 
+/// The phone's CPU, memory, GPU and battery figures while mirroring (the first call starts measuring).
+async fn screen_perf(State(app): State<App>) -> R {
+    Ok(Json(app.screen.perf().map_err(dev)?))
+}
+
+/// Shows the system's folder picker on this computer; answers `{"path": null}` when cancelled.
+async fn pick_folder() -> R {
+    #[cfg(windows)]
+    let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        let mut c = std::process::Command::new("powershell");
+        c.args(["-NoProfile", "-NonInteractive", "-STA", "-Command", PICK_FOLDER_PS]).creation_flags(0x0800_0000); // no console window
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("osascript");
+        c.args(["-e", "POSIX path of (choose folder with prompt \"Folder for screenshots and recordings\")"]);
+        c
+    };
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("zenity");
+        c.args(["--file-selection", "--directory", "--title=Folder for screenshots and recordings"]);
+        c
+    };
+    let out = tokio::task::spawn_blocking(move || cmd.output())
+        .await
+        .map_err(|e| bad(e.to_string()))?
+        .map_err(|_| bad("This computer has no folder picker the app can use. Type the folder's path instead."))?;
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Ok(Json(json!({"path": (!path.is_empty()).then_some(path)})))
+}
+
+/// Windows' folder dialog, on top of other windows; prints the chosen folder in UTF-8.
+#[cfg(windows)]
+const PICK_FOLDER_PS: &str = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; \
+    $o=New-Object System.Windows.Forms.Form -Property @{TopMost=$true}; $d=New-Object System.Windows.Forms.FolderBrowserDialog; \
+    $d.Description='Folder for screenshots and recordings'; if($d.ShowDialog($o) -eq 'OK'){$d.SelectedPath}";
+
+// ---------------------------------------------------------------- MCP (AI agents)
+/// The tools AI agents get, shared with the browser edition: ui/mcp-tools.json. Each tool is one
+/// or more calls to this API; `{key}` in a path comes from the arguments or the previous answer.
+fn mcp_spec() -> &'static Value {
+    static SPEC: OnceLock<Value> = OnceLock::new();
+    SPEC.get_or_init(|| Ui::get("mcp-tools.json").and_then(|f| serde_json::from_slice(&f.data).ok()).unwrap_or(json!({"tools": []})))
+}
+
+/// Model Context Protocol over HTTP (JSON answers, no sessions): `claude mcp add --transport http idevbench http://127.0.0.1:8766/mcp`.
+async fn mcp(State(app): State<App>, body: axum::body::Bytes) -> Response {
+    let reply = |id: Value, r: Value| Json(json!({"jsonrpc": "2.0", "id": id, "result": r})).into_response();
+    let error = |id: Value, code: i64, m: &str| Json(json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": m}})).into_response();
+    let Ok(msg) = serde_json::from_slice::<Value>(&body) else { return error(Value::Null, -32700, "Parse error") };
+    if !msg.is_object() {
+        return error(Value::Null, -32600, "Send one JSON-RPC message at a time");
+    }
+    let Some(id) = msg.get("id").cloned() else { return StatusCode::ACCEPTED.into_response() }; // a notification
+    let spec = mcp_spec();
+    match msg["method"].as_str().unwrap_or("") {
+        "initialize" => {
+            let asked = msg["params"]["protocolVersion"].as_str().unwrap_or("");
+            let version = if ["2025-06-18", "2025-03-26", "2024-11-05"].contains(&asked) { asked } else { "2025-06-18" };
+            reply(id, json!({"protocolVersion": version, "capabilities": {"tools": {}}, "instructions": spec["instructions"],
+                "serverInfo": {"name": "idevbench", "version": crate::updater::current_version().to_string()}}))
+        }
+        "ping" => reply(id, json!({})),
+        "tools/list" => {
+            let tools: Vec<Value> = spec["tools"].as_array().into_iter().flatten()
+                .map(|t| json!({"name": t["name"], "description": t["description"], "inputSchema": t["inputSchema"]}))
+                .collect();
+            reply(id, json!({"tools": tools}))
+        }
+        "tools/call" => {
+            let name = msg["params"]["name"].as_str().unwrap_or("");
+            let Some(tool) = spec["tools"].as_array().into_iter().flatten().find(|t| t["name"] == name) else {
+                return error(id, -32602, &format!("Unknown tool '{name}'"));
+            };
+            let args = msg["params"]["arguments"].as_object().cloned().unwrap_or_default();
+            match mcp_run(&app, tool, args).await {
+                Ok(content) => reply(id, json!({"content": content})),
+                Err(e) => reply(id, json!({"content": [{"type": "text", "text": e}], "isError": true})),
+            }
+        }
+        m => error(id, -32601, &format!("Method not found: {m}")),
+    }
+}
+
+async fn mcp_run(app: &App, tool: &Value, mut args: serde_json::Map<String, Value>) -> Result<Vec<Value>, String> {
+    use base64::Engine;
+    use tower::ServiceExt;
+    let text = |v: &Value| json!({"type": "text", "text": if let Value::String(s) = v { s.clone() } else { serde_json::to_string_pretty(v).unwrap_or_default() }});
+    let steps = tool["call"].as_array().cloned().unwrap_or_default();
+    if steps.first().and_then(|s| s[0].as_str()) == Some("WAIT") {
+        let ms = args.get("ms").and_then(Value::as_u64).unwrap_or(1000).min(10_000);
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        return Ok(vec![text(&json!(format!("Waited {ms} ms.")))]);
+    }
+    let mut answers: Vec<Value> = Vec::new();
+    for (i, step) in steps.iter().enumerate() {
+        let method = step[0].as_str().unwrap_or("GET");
+        let mut path = step[1].as_str().unwrap_or("/").to_string();
+        while let (Some(a), Some(b)) = (path.find('{'), path.find('}')) {
+            let key = path[a + 1..b].to_string();
+            let v = if i == 0 { args.remove(&key) } else { None }.or_else(|| answers.last().and_then(|r| r.get(&key).cloned()));
+            let v = match v {
+                Some(Value::String(s)) => s,
+                Some(v) => v.to_string(),
+                None => return Err(format!("'{key}' is missing")),
+            };
+            path.replace_range(a..=b, &percent_encoding::utf8_percent_encode(&v, percent_encoding::NON_ALPHANUMERIC).to_string());
+        }
+        // The tool's arguments go to the first call: as the query of a GET, else merged into its body.
+        let mut body = step.get(2).and_then(Value::as_object).cloned().unwrap_or_default();
+        if i == 0 && method == "GET" && !args.is_empty() {
+            let q = url::form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(args.iter().map(|(k, v)| (k.clone(), v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))))
+                .finish();
+            path = format!("{path}?{q}");
+        } else if i == 0 {
+            body.extend(args.clone());
+        }
+        let req = axum::http::Request::builder()
+            .method(method)
+            .uri(&path)
+            .header(header::HOST, "127.0.0.1")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(if method == "GET" { Body::empty() } else { Body::from(Value::Object(body).to_string()) })
+            .map_err(|e| e.to_string())?;
+        let res = router(app.clone()).oneshot(req).await.map_err(|e| e.to_string())?;
+        let (status, kind) = (res.status(), res.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").to_string());
+        let bytes = axum::body::to_bytes(res.into_body(), 64 << 20).await.map_err(|e| e.to_string())?;
+        if kind.starts_with("image/") && status.is_success() {
+            return Ok(vec![json!({"type": "image", "data": base64::engine::general_purpose::STANDARD.encode(&bytes), "mimeType": kind})]);
+        }
+        let v: Value = serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into()));
+        if !status.is_success() {
+            return Err(v["detail"].as_str().map(String::from).unwrap_or_else(|| format!("HTTP {}: {}", status.as_u16(), v)));
+        }
+        answers.push(v);
+    }
+    let out = match tool["returns"].as_array() {
+        Some(r) => {
+            let from = &answers[r[0].as_u64().unwrap_or(0) as usize];
+            let keys = r[1].as_array().cloned().unwrap_or_default();
+            Value::Object(keys.iter().filter_map(|k| k.as_str()).map(|k| (k.to_string(), from[k].clone())).collect())
+        }
+        None => answers.pop().unwrap_or(Value::Null),
+    };
+    Ok(vec![text(&out)])
+}
+
 /// Live picture, sound and status for the Mirror tab or another program; input goes the other way.
 async fn screen_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgrade) -> Response {
     use axum::extract::ws::Message;
@@ -293,7 +447,22 @@ async fn screen_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgra
         let worker = {
             let app = app.clone();
             tokio::spawn(async move {
-                while let Some(i) = input_rx.recv().await {
+                let mut held = None;
+                loop {
+                    let Some(mut i) = held.take() else {
+                        match input_rx.recv().await {
+                            Some(i) => { held = Some(i); continue; }
+                            None => break,
+                        }
+                    };
+                    // Finger moves that piled up while the phone was busy: only the newest matters.
+                    while crate::screen::is_move(&i) {
+                        match input_rx.try_recv() {
+                            Ok(next) if crate::screen::is_move(&next) => i = next,
+                            Ok(next) => { held = Some(next); break; }
+                            Err(_) => break,
+                        }
+                    }
                     if let Err(e) = app.screen.input(i).await {
                         let _ = err_tx.send(e);
                     }
@@ -1502,9 +1671,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mcp_drives_location_and_mirroring() {
+        let a = app();
+        let rpc = |method: &str, params: Value| {
+            let a = a.clone();
+            let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).to_string();
+            async move {
+                let r = mcp(State(a), axum::body::Bytes::from(body)).await;
+                serde_json::from_slice::<Value>(&axum::body::to_bytes(r.into_body(), 1 << 24).await.unwrap()).unwrap()
+            }
+        };
+        let call = |name: &str, args: Value| rpc("tools/call", json!({"name": name, "arguments": args}));
+        let init = rpc("initialize", json!({"protocolVersion": "2025-03-26"})).await;
+        assert_eq!((init["result"]["protocolVersion"].as_str(), init["result"]["serverInfo"]["name"].as_str()), (Some("2025-03-26"), Some("idevbench")));
+        let tools = rpc("tools/list", json!({})).await["result"]["tools"].as_array().unwrap().len();
+        assert!(tools >= 30, "{tools}");
+        let note = mcp(State(a.clone()), axum::body::Bytes::from(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)).await;
+        assert_eq!(note.status(), StatusCode::ACCEPTED);
+        assert_eq!(rpc("nope", json!({})).await["error"]["code"], -32601);
+
+        assert!(call("tap", json!({"x": 0.5, "y": 0.5})).await["result"]["isError"].as_bool().unwrap());
+        for (name, args) in [
+            ("connect_device", json!({"driver": "mock"})),
+            ("set_location", json!({"lat": 48.8584, "lon": 2.2945})),
+            ("start_mirroring", json!({"driver": "mock"})),
+            ("tap", json!({"x": 0.5, "y": 0.9})),
+            ("gesture", json!({"name": "app_switcher"})),
+            ("press_key", json!({"usage": 4, "command": true})),
+            ("phone_performance", json!({})),
+            ("wait", json!({"ms": 1})),
+        ] {
+            let r = call(name, args).await;
+            assert!(r["result"]["isError"].is_null(), "{name}: {r}");
+        }
+        assert!(a.screen.sim_inputs().contains(&crate::screen::Input::Gesture("app_switcher")));
+        let route = call("drive_route", json!({"waypoints": [{"lat": 51.5, "lon": -0.12}, {"lat": 51.501, "lon": -0.12}], "legs": [{"mode": "straight"}]})).await;
+        let text: Value = serde_json::from_str(route["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert!(text["id"].is_string() && text["summary"].is_object(), "{route}");
+        assert_eq!(a.player.status()["state"], "playing");
+        let fav = call("list_favourites", json!({})).await;
+        assert!(!fav["result"]["content"][0]["text"].as_str().unwrap().contains("settings"));
+        let shot = call("screenshot", json!({})).await;
+        assert!(shot["result"]["isError"].as_bool().unwrap());
+    }
+
+    #[tokio::test]
     async fn screen_captures_go_to_the_chosen_folder() {
         let a = app();
-        let dir = std::env::temp_dir().join(format!("sideport-captures-{}", rand::random::<u64>()));
+        let dir = std::env::temp_dir().join(format!("idevbench-captures-{}", rand::random::<u64>()));
         a.store.save(&json!({"settings": {"capture_folder": dir.to_string_lossy()}})).unwrap();
         let save = |name: &str| screen_save(State(a.clone()), Query(SaveQ { name: name.into() }), axum::body::Bytes::from_static(b"png"));
         let first = save("shot.png").await.unwrap_or_else(|e| panic!("{}", e.1)).0;

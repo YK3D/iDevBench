@@ -2671,7 +2671,7 @@ const ACTIONS = [
   ["tab-gpx", "3", "GPX tab", () => openTab("gpx")],
   ["tab-joystick", "4", "Joystick tab", () => openTab("joystick")],
   ["tab-saved", "5", "Saved tab", () => openTab("saved")],
-  ["screen", "6", "Screen section (mirroring)", () => setMode("screen")],
+  ["screen", "6", "Mirroring section", () => setMode("screen")],
 ];
 const actionById = Object.fromEntries(ACTIONS.map((a) => [a[0], a]));
 function shortcutMap() {
@@ -3288,7 +3288,8 @@ document.addEventListener("pointerdown", (e) => {
 // The server sends the phone's screen as HEVC frames (decoded here with WebCodecs) and its sound as
 // PCM over /api/screen/ws; touches and keys go back as JSON. Message layout: see standalone/src/screen.
 const mirror = { ws: null, decoder: null, config: null, supported: {}, status: { state: "off" }, audio: null, nextAudio: 0,
-  recorder: null, down: false, turn: 0, lastKeyAsk: 0, errors: 0, wheel: null, stats: null };
+  recorder: null, down: false, turn: 0, lastKeyAsk: 0, errors: 0, wheel: null, pinch: null, stats: null, perf: null,
+  frame: null, drawQueued: false, pending: new Map() };
 // KeyboardEvent.code -> HID keyboard usage. Ctrl is sent as the iPhone's Command key.
 const HID_KEYS = (() => {
   const m = { Enter: 40, NumpadEnter: 40, Escape: 41, Backspace: 42, Tab: 43, Space: 44, Minus: 45, Equal: 46, BracketLeft: 47,
@@ -3301,7 +3302,7 @@ const HID_KEYS = (() => {
   return m;
 })();
 
-// Location or Screen: the two sections of the app. Screen hides the location tools and the map.
+// Location or Mirroring: the two sections of the app. Mirroring hides the location tools and the map.
 function setMode(mode) {
   const screen = mode === "screen";
   document.querySelectorAll("#modes button").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
@@ -3325,7 +3326,8 @@ function askKeyframe() {
   mirrorSend({ t: "keyframe" });
 }
 function renderMirror(s) {
-  const turned = (s.rotation || 0) !== (mirror.status.rotation || 0);
+  const before = mirrorTurn();
+  if ((s.rotation || 0) !== (mirror.status.rotation || 0)) mirror.turn = 0; // the phone says which way it is now
   mirror.status = s;
   const on = s.state === "on", busy = s.state === "starting";
   $("btn-mirror").textContent = on ? "Stop mirroring" : busy ? "Starting…" : "Start mirroring";
@@ -3336,51 +3338,58 @@ function renderMirror(s) {
   box.textContent = on
     ? `Mirroring${s.width ? ` · ${s.width}×${s.height}` : ""}${s.audio ? " · with sound" : ""}${s.note ? `. ${s.note}` : ""}`
     : s.state === "error" ? s.error : busy ? "Starting… (unlock the iPhone)" : "Not mirroring";
-  for (const b of [...$("mirror-tools").querySelectorAll("button"), $("btn-mirror-type")]) b.disabled = !on;
-  $("btn-mirror-stats").disabled = false;
-  $("mirror-empty").hidden = on && !s.simulated && $("mirror-canvas").hasAttribute("width");
-  if (on && s.simulated) {
-    $("mirror-empty").textContent = "Simulator: there is no real screen. Clicks and keys are accepted and ignored.";
-  } else if (!on) {
-    $("mirror-empty").textContent = s.state === "error" ? s.error : "Press Start mirroring to see the iPhone's screen here.";
-  }
-  if (turned) {
-    mirror.turn = 0; // the phone says which way it is now; drop the manual turn
-    if (mirror.prev) drawMirror(mirror.prev);
-  }
+  for (const b of $("mirror-tools").querySelectorAll("button")) b.disabled = !on && b.id !== "btn-mirror-stats";
+  $("mirror-empty").textContent = on && s.simulated ? "Simulator: there is no real screen. Clicks and keys are accepted and ignored."
+    : on ? "Waiting for the picture…" : s.state === "error" ? s.error : busy ? "Starting… Unlock the iPhone." : "Press Start mirroring to see the iPhone's screen here.";
+  if (mirrorTurn() !== before) turnPicture((mirrorTurn() - before + 360) % 360);
   if (on) mirrorOpen();
   else if (!busy) mirrorClose();
 }
 
 // Clockwise degrees the picture is turned: the phone's own orientation plus the Rotate button.
 const mirrorTurn = () => ((mirror.status.rotation || 0) + mirror.turn) % 360;
+const mirrorCtx = () => $("mirror-canvas").getContext("2d", { alpha: false, desynchronized: true });
 function fitMirror() {
   const c = $("mirror-canvas"), view = $("mirror-view");
   if (!c.width || !c.height) return;
   const tools = $("mirror-tools").getBoundingClientRect();
   const wide = view.clientWidth > 760;
-  const w = view.clientWidth - 32 - (wide ? tools.width + 14 : 0), h = view.clientHeight - 32 - (wide ? 0 : tools.height + 14);
+  const w = view.clientWidth - 48 - (wide ? tools.width + 20 : 0), h = view.clientHeight - 48 - (wide ? 0 : tools.height + 10);
   const k = Math.min(w / c.width, h / c.height);
   c.style.width = `${Math.max(1, c.width * k)}px`;
   c.style.height = `${Math.max(1, c.height * k)}px`;
 }
 new ResizeObserver(fitMirror).observe($("mirror-view"));
 
-function drawMirror(frame) {
-  const c = $("mirror-canvas"), turn = mirrorTurn(), side = turn % 180 !== 0;
-  const w = side ? frame.displayHeight : frame.displayWidth, h = side ? frame.displayWidth : frame.displayHeight;
-  if (c.width !== w || c.height !== h) {
-    c.width = w;
-    c.height = h;
+// Draws `src` (w×h before turning) turned by `turn` degrees onto the canvas, resizing it if needed.
+function drawTurned(src, w, h, turn) {
+  const c = $("mirror-canvas"), side = turn % 180 !== 0;
+  const cw = side ? h : w, ch = side ? w : h;
+  if (c.width !== cw || c.height !== ch) {
+    c.width = cw;
+    c.height = ch;
     fitMirror();
-    $("mirror-empty").hidden = true;
   }
-  const ctx = c.getContext("2d");
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (turn === 90) ctx.setTransform(0, 1, -1, 0, w, 0);
-  else if (turn === 180) ctx.setTransform(-1, 0, 0, -1, w, h);
-  else if (turn === 270) ctx.setTransform(0, -1, 1, 0, 0, h);
-  ctx.drawImage(frame, 0, 0);
+  const ctx = mirrorCtx();
+  ctx.setTransform(...({ 90: [0, 1, -1, 0, cw, 0], 180: [-1, 0, 0, -1, cw, ch], 270: [0, -1, 1, 0, 0, ch] }[turn] || [1, 0, 0, 1, 0, 0]));
+  ctx.drawImage(src, 0, 0);
+}
+// Turn what is on screen now (a still screen sends no new frame).
+function turnPicture(delta) {
+  const c = $("mirror-canvas");
+  if (!c.width || !delta) return;
+  const copy = new OffscreenCanvas(c.width, c.height);
+  copy.getContext("2d").drawImage(c, 0, 0);
+  drawTurned(copy, copy.width, copy.height, delta);
+}
+// Only the newest frame is drawn, once per screen refresh; frames that came in between are skipped.
+function drawPending() {
+  mirror.drawQueued = false;
+  const f = mirror.frame;
+  mirror.frame = null;
+  if (!f) return;
+  drawTurned(f, f.displayWidth, f.displayHeight, mirrorTurn());
+  f.close();
 }
 
 // A new decoder for the current setup; the old one is dropped (also after a decoding error,
@@ -3389,28 +3398,26 @@ function mirrorMakeDecoder() {
   if (mirror.decoder && mirror.decoder.state !== "closed") mirror.decoder.close();
   mirror.decoder = null;
   if (!mirror.config) return;
-  const pending = new Map(); // timestamp -> when it went in, for the decode delay
   mirror.decoder = new VideoDecoder({
     output: (frame) => {
       mirror.errors = 0;
-      const st = mirror.stats, t = pending.get(frame.timestamp);
+      const st = mirror.stats, t = mirror.pending.get(frame.timestamp);
       if (st) { st.frames++; if (t !== undefined) { st.decodeMs += performance.now() - t; st.decoded++; } }
-      pending.delete(frame.timestamp);
-      drawMirror(frame);
-      if (mirror.prev) mirror.prev.close();
-      mirror.prev = frame; // kept until the next one, to redraw a still screen when it turns
+      mirror.pending.delete(frame.timestamp);
+      if (mirror.frame) mirror.frame.close();
+      mirror.frame = frame;
+      if (document.hidden) drawPending(); // no screen refreshes while hidden; keep recordings going
+      else if (!mirror.drawQueued) { mirror.drawQueued = true; requestAnimationFrame(drawPending); }
     },
     error: () => {
       if (++mirror.errors > 3) {
-        $("mirror-empty").hidden = false;
-        $("mirror-empty").textContent = "The picture can't be decoded. Press Refresh, or stop and start mirroring.";
+        $("mirror-empty").textContent = "The picture can't be decoded. Press Restart stream, or stop and start mirroring.";
         return;
       }
       mirrorMakeDecoder();
     },
   });
   mirror.decoder.configure(mirror.config);
-  mirror.pending = pending;
   mirror.waitKey = true;
   mirror.lastKeyAsk = 0;
   askKeyframe();
@@ -3427,7 +3434,6 @@ async function mirrorDecoder(view) {
     mirror.supported[codec] = typeof VideoDecoder !== "undefined" && (await VideoDecoder.isConfigSupported(config)).supported;
   }
   if (!mirror.supported[codec]) {
-    $("mirror-empty").hidden = false;
     $("mirror-empty").textContent = "This computer can't decode the iPhone's video (HEVC). Update the graphics driver, or install "
       + "“HEVC Video Extensions” from the Microsoft Store, then start mirroring again.";
     return;
@@ -3500,8 +3506,8 @@ function mirrorClose() {
   mirror.ws = null;
   if (ws) ws.close();
   if (mirror.decoder && mirror.decoder.state !== "closed") mirror.decoder.close();
-  mirror.decoder = mirror.config = null;
-  if (mirror.prev) { mirror.prev.close(); mirror.prev = null; }
+  mirror.decoder = mirror.config = mirror.perf = null;
+  if (mirror.frame) { mirror.frame.close(); mirror.frame = null; }
   if (mirror.audio) { mirror.audio.ctx.close(); mirror.audio = null; }
   const c = $("mirror-canvas");
   c.removeAttribute("width");
@@ -3529,66 +3535,95 @@ $("btn-mirror").onclick = guard(async () => {
   }
 });
 
-$("btn-mirror-type").onclick = guard(async () => {
-  const text = $("mirror-text").value;
-  if (!text) return;
-  await api("/api/screen/input", { body: { t: "text", text } });
-  $("mirror-text").value = "";
-});
-$("mirror-text").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-mirror-type").click(); });
-
 // ---- positions: the picture as shown (turned upright) vs. the phone's own screen
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
 // A point on the picture (fractions, 0..1) -> the same point on the phone's native screen.
 function toPhone(u, v) {
   const turn = mirrorTurn();
   const p = turn === 90 ? [v, 1 - u] : turn === 180 ? [1 - u, 1 - v] : turn === 270 ? [1 - v, u] : [u, v];
-  return { x: Math.min(1, Math.max(0, p[0])), y: Math.min(1, Math.max(0, p[1])) };
+  return { x: clamp01(p[0]), y: clamp01(p[1]) };
 }
+const mc = $("mirror-canvas");
 const viewPoint = (e) => {
-  const r = $("mirror-canvas").getBoundingClientRect();
-  return { u: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), v: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) };
+  const r = mc.getBoundingClientRect();
+  return { u: clamp01((e.clientX - r.left) / r.width), v: clamp01((e.clientY - r.top) / r.height) };
 };
-// The finger on screen: a dot while pressed, a ripple when it lifts.
-function showTouch(p, phase) {
-  const dot = $("mirror-touch"), c = $("mirror-canvas");
-  dot.style.translate = `${p.u * c.clientWidth}px ${p.v * c.clientHeight}px`;
-  if (phase === "down") { dot.hidden = false; dot.className = "mirror-touch"; requestAnimationFrame(() => dot.classList.add("down")); }
-  if (phase === "up") dot.className = "mirror-touch up";
-}
 function touch(phase, p) {
-  showTouch(p, phase);
   mirrorSend({ t: "touch", phase, ...toPhone(p.u, p.v) });
 }
 
-const mc = $("mirror-canvas");
+// The pointer over the screen: a small dot (the system cursor is hidden there) that dips on a press.
+const cursorDot = $("mirror-cursor");
+function moveCursor(e) {
+  const r = mc.getBoundingClientRect();
+  cursorDot.style.translate = `${e.clientX - r.left}px ${e.clientY - r.top}px`;
+}
+mc.addEventListener("pointerenter", (e) => { moveCursor(e); cursorDot.hidden = false; });
+mc.addEventListener("pointerleave", () => { if (!mirror.down) cursorDot.hidden = true; });
+
+// A faint trail behind a dragging finger, fading in a quarter of a second.
+const trail = { pts: [], raf: 0 };
+function addTrail(e) {
+  const r = mc.getBoundingClientRect();
+  trail.pts.push({ x: e.clientX - r.left, y: e.clientY - r.top, t: performance.now() });
+  if (!trail.raf) trail.raf = requestAnimationFrame(drawTrail);
+}
+function drawTrail() {
+  const tc = $("mirror-trail"), dpr = devicePixelRatio || 1, w = Math.round(tc.clientWidth * dpr), h = Math.round(tc.clientHeight * dpr);
+  if (tc.width !== w || tc.height !== h) { tc.width = w; tc.height = h; }
+  const ctx = tc.getContext("2d"), now = performance.now(), life = 260;
+  ctx.clearRect(0, 0, w, h);
+  trail.pts = trail.pts.filter((p) => now - p.t < life);
+  ctx.lineCap = "round";
+  for (let i = 1; i < trail.pts.length; i++) {
+    const a = trail.pts[i - 1], b = trail.pts[i], f = 1 - (now - b.t) / life;
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.45 * f})`;
+    ctx.lineWidth = (1.5 + 2.5 * f) * dpr;
+    ctx.beginPath();
+    ctx.moveTo(a.x * dpr, a.y * dpr);
+    ctx.lineTo(b.x * dpr, b.y * dpr);
+    ctx.stroke();
+  }
+  trail.raf = trail.pts.length ? requestAnimationFrame(drawTrail) : 0;
+}
+
 mc.addEventListener("pointerdown", (e) => {
-  if (e.button !== 0 || mirror.wheel) return;
+  if (e.button !== 0 || mirror.wheel || mirror.pinch) return;
   mc.setPointerCapture(e.pointerId);
   mirror.down = true;
+  cursorDot.classList.remove("up");
+  cursorDot.classList.add("down");
+  addTrail(e);
   touch("down", viewPoint(e));
 });
 mc.addEventListener("pointermove", (e) => {
+  moveCursor(e);
   if (!mirror.down) return;
+  addTrail(e);
   // Pointer events can come faster than the screen refreshes: send the newest once per frame.
-  if (!mirror.pending_move) requestAnimationFrame(() => { if (mirror.down && mirror.pending_move) touch("move", mirror.pending_move); mirror.pending_move = null; });
-  mirror.pending_move = viewPoint(e);
+  if (!mirror.moveTo) requestAnimationFrame(() => { if (mirror.down && mirror.moveTo) touch("move", mirror.moveTo); mirror.moveTo = null; });
+  mirror.moveTo = viewPoint(e);
 });
 const touchUp = (e) => {
   if (!mirror.down) return;
   mirror.down = false;
-  mirror.pending_move = null;
+  mirror.moveTo = null;
+  cursorDot.classList.remove("down");
+  cursorDot.classList.add("up");
   touch("up", viewPoint(e));
 };
 mc.addEventListener("pointerup", touchUp);
 mc.addEventListener("pointercancel", touchUp);
 mc.addEventListener("contextmenu", (e) => { e.preventDefault(); mirrorSend({ t: "button", name: "home" }); });
 
-// Mouse wheel / trackpad: a finger drag that follows the wheel, lifted when the wheel rests.
+// Mouse wheel: a finger drag that follows the wheel, lifted when the wheel rests.
+// Ctrl + wheel (and a trackpad pinch, which arrives the same way): two fingers pinching.
 mc.addEventListener("wheel", (e) => {
   e.preventDefault();
   if (mirror.down || mirror.status.state !== "on") return;
   const r = mc.getBoundingClientRect(), line = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? r.height : 1;
   let dx = e.deltaX * line, dy = e.deltaY * line;
+  if (e.ctrlKey) return pinch(e, dy);
   if (e.shiftKey && !dx) [dx, dy] = [dy, 0];
   const w = mirror.wheel || (mirror.wheel = { start: viewPoint(e), p: null });
   if (!w.p) { w.p = { ...w.start }; touch("down", w.p); }
@@ -3601,38 +3636,31 @@ mc.addEventListener("wheel", (e) => {
   w.timer = setTimeout(() => { if (w.p) touch("up", w.p); mirror.wheel = null; }, 160);
 }, { passive: false });
 
-// System gestures, drawn on the upright picture: [start, end], how long the drag takes, how long to hold.
-const GESTURES = {
-  switcher: [[0.5, 0.995], [0.5, 0.62], 260, 450],
-  control: [[0.92, 0.004], [0.92, 0.45], 260, 0],
-  notices: [[0.3, 0.004], [0.3, 0.6], 260, 0],
-  back: [[0.004, 0.5], [0.65, 0.5], 260, 0],
-};
-async function gesture(name) {
-  const [[u1, v1], [u2, v2], ms, hold] = GESTURES[name];
-  const sleep = (t) => new Promise((r) => setTimeout(r, t));
-  touch("down", { u: u1, v: v1 });
-  const steps = Math.max(2, Math.round(ms / 16));
-  for (let i = 1; i <= steps; i++) {
-    await sleep(16);
-    touch("move", { u: u1 + (u2 - u1) * i / steps, v: v1 + (v2 - v1) * i / steps });
-  }
-  if (hold) await sleep(hold);
-  touch("up", { u: u2, v: v2 });
+function pinch(e, dy) {
+  const p = mirror.pinch || (mirror.pinch = { c: viewPoint(e), d: 0.1, down: false });
+  p.d = Math.min(0.42, Math.max(0.03, p.d * Math.exp(-dy * 0.004))); // wheel up (or fingers apart) zooms in
+  const a = toPhone(p.c.u, clamp01(p.c.v - p.d)), b = toPhone(p.c.u, clamp01(p.c.v + p.d));
+  const send = (phase) => mirrorSend({ t: "touch", phase, x: a.x, y: a.y, x2: b.x, y2: b.y });
+  send(p.down ? "move" : "down");
+  p.down = true;
+  clearTimeout(p.timer);
+  p.timer = setTimeout(() => { send("up"); mirror.pinch = null; }, 200);
 }
+
+// Buttons and gestures next to the screen (gestures are drawn by the app, turned with the phone).
 $("mirror-tools").addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b) return;
   if (b.dataset.button) mirrorSend({ t: "button", name: b.dataset.button });
-  else if (b.dataset.gesture) gesture(b.dataset.gesture);
+  else if (b.dataset.gesture) mirrorSend({ t: "gesture", name: b.dataset.gesture });
 });
 $("btn-mirror-rotate").onclick = () => {
   mirror.turn = (mirror.turn + 90) % 360;
-  if (mirror.prev) drawMirror(mirror.prev); // show it now, even on a still screen
+  turnPicture(90);
 };
 $("btn-mirror-refresh").onclick = guard(async () => {
   await api("/api/screen/input", { body: { t: "refresh" } });
-  toast("Restarting the picture…");
+  toast("Restarting the stream…");
 });
 
 // Keys go to the iPhone while the picture has focus (click it); the app's shortcuts stay off meanwhile.
@@ -3648,7 +3676,7 @@ for (const type of ["keydown", "keyup"]) {
   });
 }
 
-// ---- screenshots and recordings: saved by the app to the folder chosen in Settings › Screen
+// ---- screenshots and recordings: saved by the app to the folder chosen in Settings › Mirroring
 const stamp = () => new Date().toISOString().slice(0, 23).replace(/[-:]/g, "").replace("T", "-").replace(".", "");
 async function saveCapture(blob, name) {
   const r = await fetch(`/api/screen/save?name=${encodeURIComponent(name)}`, { method: "POST", body: blob });
@@ -3657,16 +3685,22 @@ async function saveCapture(blob, name) {
   toast(`Saved to ${data.path}`);
 }
 function renderCaptureFolder() {
-  const f = (settings().capture_folder || "").trim();
-  $("capture-folder").value = f;
-  $("capture-folder-hint").textContent = f || "your Downloads folder";
+  $("capture-folder").value = (settings().capture_folder || "").trim();
 }
-$("capture-folder").addEventListener("change", (e) => { settings().capture_folder = e.target.value.trim(); renderCaptureFolder(); saveSettingsSoon(); });
-$("link-capture-settings").onclick = (e) => { e.preventDefault(); openSettings("screen"); };
+function setCaptureFolder(path) {
+  settings().capture_folder = (path || "").trim();
+  renderCaptureFolder();
+  saveSettingsSoon();
+}
+$("capture-folder").addEventListener("change", (e) => setCaptureFolder(e.target.value));
+$("btn-capture-browse").onclick = guard(async () => {
+  const { path } = await api("/api/pick-folder", { body: {} });
+  if (path) setCaptureFolder(path);
+});
 $("btn-mirror-shot").onclick = guard(async () => {
   const c = $("mirror-canvas");
   if (!c.width) throw new Error("There is no picture yet. Wait for the iPhone's screen to appear.");
-  await saveCapture(await new Promise((r) => c.toBlob(r, "image/png")), `sideport-screenshot-${stamp()}.png`);
+  await saveCapture(await new Promise((r) => c.toBlob(r, "image/png")), `idevbench-screenshot-${stamp()}.png`);
 });
 $("btn-mirror-rec").onclick = guard(async () => {
   const btn = $("btn-mirror-rec");
@@ -3683,26 +3717,38 @@ $("btn-mirror-rec").onclick = guard(async () => {
     mirror.recorder = null;
     btn.classList.remove("recording");
     btn.querySelector("span").textContent = "Record";
-    if (parts.length) await saveCapture(new Blob(parts, { type: rec.mimeType }), `sideport-recording-${stamp()}.${rec.mimeType.startsWith("video/mp4") ? "mp4" : "webm"}`);
+    if (parts.length) await saveCapture(new Blob(parts, { type: rec.mimeType }), `idevbench-recording-${stamp()}.${rec.mimeType.startsWith("video/mp4") ? "mp4" : "webm"}`);
   });
   rec.start(1000);
   mirror.recorder = rec;
   btn.classList.add("recording");
-  btn.querySelector("span").textContent = "Stop";
+  btn.querySelector("span").textContent = "Stop recording";
 });
 
-// ---- performance: frame rate, data rate, decode delay, dropped frames, sound buffer
+// ---- stats: the stream (frame rate, data rate, decode delay, dropped frames, sound buffer)
+// and the iPhone itself (CPU, memory, GPU, its own frame rate, battery and temperature)
 function newStats() { return { frames: 0, bytes: 0, decodeMs: 0, decoded: 0, dropped: 0, keys: 0, total: 0, at: performance.now() }; }
+const fmt = (v, digits = 0, unit = "") => (v === null || v === undefined ? "–" : `${Number(v).toFixed(digits)}${unit}`);
+const gb = (b) => (b === null || b === undefined ? "–" : (b / 2 ** 30).toFixed(1));
 setInterval(() => {
   const st = mirror.stats, box = $("mirror-stats");
   if (!st || box.hidden) return;
-  const s = (performance.now() - st.at) / 1000, c = $("mirror-canvas");
+  const s = (performance.now() - st.at) / 1000, c = $("mirror-canvas"), p = mirror.perf;
   st.total += st.dropped;
-  const sound = mirror.audio ? `  sound buffer ${Math.max(0, Math.round((mirror.nextAudio - mirror.audio.ctx.currentTime) * 1000))} ms` : "";
-  box.textContent = `${Math.round(st.frames / s)} fps  ${(st.bytes * 8 / s / 1e6).toFixed(1)} Mbit/s  decode ${st.decoded ? (st.decodeMs / st.decoded).toFixed(1) : "–"} ms\n`
-    + `${c.width}×${c.height}  dropped ${st.total}  keyframes ${st.keys}${sound}`;
+  const sound = mirror.audio ? `  sound ${Math.max(0, Math.round((mirror.nextAudio - mirror.audio.ctx.currentTime) * 1000))} ms` : "";
+  let text = `Stream  ${Math.round(st.frames / s)} fps  ${(st.bytes * 8 / s / 1e6).toFixed(1)} Mbit/s  decode ${st.decoded ? (st.decodeMs / st.decoded).toFixed(1) : "–"} ms\n`
+    + `        ${c.width}×${c.height}  dropped ${st.total}  keyframes ${st.keys}${sound}`;
+  if (p) {
+    text += `\niPhone  CPU ${fmt(p.cpu, 0, "%")}${p.cores ? ` of ${p.cores} cores` : ""}  RAM ${gb(p.memory_used)}/${gb(p.memory_total)} GB  GPU ${fmt(p.gpu, 0, "%")}  ${fmt(p.fps, 0, " fps")}\n`
+      + `        battery ${fmt(p.battery, 0, "%")}${p.charging ? " (charging)" : ""}  ${fmt(p.battery_temp, 1, " °C")}`;
+  }
+  box.textContent = text;
   Object.assign(st, { frames: 0, bytes: 0, decodeMs: 0, decoded: 0, dropped: 0, at: performance.now() });
 }, 1000);
+setInterval(async () => {
+  if (!mirror.stats || mirror.status.state !== "on" || mirror.status.simulated) return;
+  try { mirror.perf = await api("/api/screen/perf"); } catch (_) { /* not mirroring any more */ }
+}, 2000);
 function setStats(on) {
   mirror.stats = on ? newStats() : null;
   $("mirror-stats").hidden = !on;
