@@ -168,6 +168,8 @@ pub fn router(app: App) -> Router {
         .route("/api/screen/save", post(screen_save).layer(DefaultBodyLimit::max(2 << 30)))
         .route("/api/screen/perf", get(screen_perf))
         .route("/api/pick-folder", post(pick_folder))
+        .route("/api/mcp/setup", get(mcp_setup))
+        .route("/api/mcp/claude-desktop", post(mcp_claude_desktop))
         .route("/mcp", post(mcp).get(|| async { (StatusCode::METHOD_NOT_ALLOWED, "Send MCP messages with POST.") }))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(axum::middleware::from_fn(local_only))
@@ -283,37 +285,32 @@ async fn screen_perf(State(app): State<App>) -> R {
 /// Shows the system's folder picker on this computer; answers `{"path": null}` when cancelled.
 async fn pick_folder() -> R {
     #[cfg(windows)]
-    let mut cmd = {
-        use std::os::windows::process::CommandExt;
-        let mut c = std::process::Command::new("powershell");
-        c.args(["-NoProfile", "-NonInteractive", "-STA", "-Command", PICK_FOLDER_PS]).creation_flags(0x0800_0000); // no console window
-        c
-    };
-    #[cfg(target_os = "macos")]
-    let mut cmd = {
-        let mut c = std::process::Command::new("osascript");
-        c.args(["-e", "POSIX path of (choose folder with prompt \"Folder for screenshots and recordings\")"]);
-        c
-    };
-    #[cfg(not(any(windows, target_os = "macos")))]
-    let mut cmd = {
-        let mut c = std::process::Command::new("zenity");
-        c.args(["--file-selection", "--directory", "--title=Folder for screenshots and recordings"]);
-        c
-    };
-    let out = tokio::task::spawn_blocking(move || cmd.output())
-        .await
-        .map_err(|e| bad(e.to_string()))?
-        .map_err(|_| bad("This computer has no folder picker the app can use. Type the folder's path instead."))?;
-    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    Ok(Json(json!({"path": (!path.is_empty()).then_some(path)})))
+    {
+        // In-process, so the dialog comes up in front of the app window.
+        let picked = tokio::task::spawn_blocking(|| rfd::FileDialog::new().set_title("Folder for screenshots and recordings").pick_folder())
+            .await
+            .map_err(|e| bad(e.to_string()))?;
+        Ok(Json(json!({"path": picked.map(|p| p.display().to_string())})))
+    }
+    #[cfg(not(windows))]
+    {
+        let mut cmd = if cfg!(target_os = "macos") {
+            let mut c = std::process::Command::new("osascript");
+            c.args(["-e", "POSIX path of (choose folder with prompt \"Folder for screenshots and recordings\")"]);
+            c
+        } else {
+            let mut c = std::process::Command::new("zenity");
+            c.args(["--file-selection", "--directory", "--title=Folder for screenshots and recordings"]);
+            c
+        };
+        let out = tokio::task::spawn_blocking(move || cmd.output())
+            .await
+            .map_err(|e| bad(e.to_string()))?
+            .map_err(|_| bad("This computer has no folder picker the app can use. Type the folder's path instead."))?;
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        Ok(Json(json!({"path": (!path.is_empty()).then_some(path)})))
+    }
 }
-
-/// Windows' folder dialog, on top of other windows; prints the chosen folder in UTF-8.
-#[cfg(windows)]
-const PICK_FOLDER_PS: &str = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; \
-    $o=New-Object System.Windows.Forms.Form -Property @{TopMost=$true}; $d=New-Object System.Windows.Forms.FolderBrowserDialog; \
-    $d.Description='Folder for screenshots and recordings'; if($d.ShowDialog($o) -eq 'OK'){$d.SelectedPath}";
 
 // ---------------------------------------------------------------- MCP (AI agents)
 /// The tools AI agents get, shared with the browser edition: ui/mcp-tools.json. Each tool is one
@@ -321,6 +318,77 @@ const PICK_FOLDER_PS: &str = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; A
 fn mcp_spec() -> &'static Value {
     static SPEC: OnceLock<Value> = OnceLock::new();
     SPEC.get_or_init(|| Ui::get("mcp-tools.json").and_then(|f| serde_json::from_slice(&f.data).ok()).unwrap_or(json!({"tools": []})))
+}
+
+/// How AI apps reach this app: the /mcp address (from the address the page used) and the program
+/// to start for apps that only start programs (`--mcp`, which passes messages to this app).
+fn mcp_command(host: &str) -> Value {
+    let port = host.rsplit_once(':').and_then(|(_, p)| p.parse::<u16>().ok());
+    let mut args = vec!["--mcp".to_string()];
+    if let Some(p) = port.filter(|p| *p != 8766 && *p != 8765) {
+        args.extend(["--port".into(), p.to_string()]); // a port the bridge wouldn't try by itself
+    }
+    let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
+    json!({"url": format!("http://{host}/mcp"), "command": exe, "args": args, "env": {}})
+}
+
+fn host_of(headers: &axum::http::HeaderMap) -> String {
+    headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("127.0.0.1:8766").to_string()
+}
+
+async fn mcp_setup(headers: axum::http::HeaderMap) -> R {
+    let mut v = mcp_command(&host_of(&headers));
+    v["claude_desktop"] = json!(claude_desktop_configs().iter().any(|p| p.exists()));
+    Ok(Json(v))
+}
+
+/// Claude Desktop's config files: %APPDATA%\Claude (or the Microsoft Store copy's), ~/Library/Application Support/Claude, ~/.config/Claude.
+fn claude_desktop_configs() -> Vec<std::path::PathBuf> {
+    const FILE: &str = "claude_desktop_config.json";
+    if let Ok(dir) = std::env::var("SPOOFER_CLAUDE_DESKTOP_DIR") {
+        return vec![std::path::PathBuf::from(dir).join(FILE)];
+    }
+    #[cfg_attr(not(windows), allow(unused_mut))] // the Microsoft Store copy is Windows-only
+    let mut dirs: Vec<std::path::PathBuf> = dirs::config_dir().map(|d| d.join("Claude")).into_iter().collect();
+    #[cfg(windows)]
+    if let Some(packages) = dirs::data_local_dir().map(|d| d.join("Packages")) {
+        for e in std::fs::read_dir(packages).into_iter().flatten().flatten() {
+            if e.file_name().to_string_lossy().starts_with("Claude_") {
+                dirs.push(e.path().join("LocalCache").join("Roaming").join("Claude"));
+            }
+        }
+    }
+    let existing: Vec<_> = dirs.iter().filter(|d| d.exists()).map(|d| d.join(FILE)).collect();
+    if existing.is_empty() { dirs.into_iter().take(1).map(|d| d.join(FILE)).collect() } else { existing }
+}
+
+/// Adds this app to Claude Desktop's MCP servers (keeping everything else in its config).
+async fn mcp_claude_desktop(headers: axum::http::HeaderMap) -> R {
+    let cmd = mcp_command(&host_of(&headers));
+    let entry = json!({"command": cmd["command"], "args": cmd["args"]});
+    let mut written = Vec::new();
+    for path in claude_desktop_configs() {
+        let mut cfg: Value = match std::fs::read_to_string(&path) {
+            Ok(t) if !t.trim().is_empty() => serde_json::from_str(&t)
+                .map_err(|_| bad(format!("Claude Desktop's settings file can't be read, so it was left alone: {}", path.display())))?,
+            _ => json!({}),
+        };
+        if !cfg.is_object() {
+            return Err(bad(format!("Claude Desktop's settings file has an unexpected shape, so it was left alone: {}", path.display())));
+        }
+        if !cfg["mcpServers"].is_object() {
+            cfg["mcpServers"] = json!({});
+        }
+        cfg["mcpServers"]["idevbench"] = entry.clone();
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| bad(e.to_string()))?;
+        }
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_string_pretty(&cfg).unwrap_or_default()).map_err(|e| bad(e.to_string()))?;
+        std::fs::rename(&tmp, &path).map_err(|e| bad(e.to_string()))?;
+        written.push(path.display().to_string());
+    }
+    Ok(Json(json!({"paths": written})))
 }
 
 /// Model Context Protocol over HTTP (JSON answers, no sessions): `claude mcp add --transport http idevbench http://127.0.0.1:8766/mcp`.
@@ -367,6 +435,10 @@ async fn mcp_run(app: &App, tool: &Value, mut args: serde_json::Map<String, Valu
     use tower::ServiceExt;
     let text = |v: &Value| json!({"type": "text", "text": if let Value::String(s) = v { s.clone() } else { serde_json::to_string_pretty(v).unwrap_or_default() }});
     let steps = tool["call"].as_array().cloned().unwrap_or_default();
+    if steps.first().and_then(|s| s[0].as_str()) == Some("GUIDE") {
+        let guide = Ui::get("mcp-guide.md").map(|f| String::from_utf8_lossy(&f.data).into_owned()).unwrap_or_default();
+        return Ok(vec![text(&Value::String(guide))]);
+    }
     if steps.first().and_then(|s| s[0].as_str()) == Some("WAIT") {
         let ms = args.get("ms").and_then(Value::as_u64).unwrap_or(1000).min(10_000);
         tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
@@ -1713,6 +1785,27 @@ mod tests {
         assert!(!fav["result"]["content"][0]["text"].as_str().unwrap().contains("settings"));
         let shot = call("screenshot", json!({})).await;
         assert!(shot["result"]["isError"].as_bool().unwrap());
+    }
+
+    #[tokio::test]
+    async fn adds_itself_to_claude_desktop_keeping_other_settings() {
+        let dir = std::env::temp_dir().join(format!("idevbench-claude-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("claude_desktop_config.json");
+        std::fs::write(&file, r#"{"theme": "dark", "mcpServers": {"other": {"command": "x"}}}"#).unwrap();
+        std::env::set_var("SPOOFER_CLAUDE_DESKTOP_DIR", &dir);
+        let mut h = axum::http::HeaderMap::new();
+        h.insert(header::HOST, "127.0.0.1:9123".parse().unwrap());
+        let setup = mcp_setup(h.clone()).await.unwrap_or_else(|e| panic!("{}", e.1)).0;
+        assert_eq!(setup["url"], "http://127.0.0.1:9123/mcp");
+        assert_eq!(setup["args"], json!(["--mcp", "--port", "9123"]));
+        let _ = mcp_claude_desktop(h).await.unwrap_or_else(|e| panic!("{}", e.1));
+        let cfg: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        std::env::remove_var("SPOOFER_CLAUDE_DESKTOP_DIR");
+        assert_eq!((cfg["theme"].as_str(), cfg["mcpServers"]["other"]["command"].as_str()), (Some("dark"), Some("x")));
+        assert_eq!(cfg["mcpServers"]["idevbench"]["args"][0], "--mcp");
+        let guide = mcp_run(&app(), &json!({"call": [["GUIDE"]]}), Default::default()).await.unwrap();
+        assert!(guide[0]["text"].as_str().unwrap().contains("passcode"));
     }
 
     #[tokio::test]

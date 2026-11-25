@@ -183,11 +183,14 @@ pub struct Status {
     pub note: Option<String>,
     /// Clockwise degrees (0, 90, 180, 270) that turn the picture upright: the phone is turned.
     pub rotation: u16,
+    /// The iPhone's name and iOS version, once known.
+    pub device_name: Option<String>,
+    pub ios: Option<String>,
 }
 
 impl Default for Status {
     fn default() -> Self {
-        Self { state: "off", error: None, simulated: false, width: None, height: None, audio: false, note: None, rotation: 0 }
+        Self { state: "off", error: None, simulated: false, width: None, height: None, audio: false, note: None, rotation: 0, device_name: None, ios: None }
     }
 }
 
@@ -291,6 +294,7 @@ impl Screen {
             tokio::spawn(simulator(self.clone(), session, rx));
             self.set(session, |s| {
                 *s = Status { state: "on", simulated: true, width: Some(1170), height: Some(2532), ..Default::default() };
+                (s.device_name, s.ios) = (Some("Simulated iPhone".into()), Some("27.0".into()));
                 s.note = Some("Simulator: there is no real screen; input is accepted and ignored.".into());
             });
             return Ok(self.status());

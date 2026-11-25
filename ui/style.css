@@ -895,12 +895,35 @@ body.mode-screen #map, body.mode-screen #player { display: none !important; }
 #mirror-canvas:not([width]) ~ :not(.mirror-skeleton), #mirror-canvas[width] ~ .mirror-skeleton { display: none; }
 .mirror-screen:has(#mirror-canvas:not([width])) { box-shadow: none; }
 .mirror-trail { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-/* while no picture: the outline of a phone, so the layout doesn't jump */
-.mirror-skeleton { display: flex; align-items: center; justify-content: center; height: min(74vh, 720px); aspect-ratio: 9 / 19.5;
-  padding: 24px; border-radius: 34px; border: 1.5px solid var(--divider);
-  background: linear-gradient(110deg, var(--panel) 40%, color-mix(in srgb, var(--panel) 80%, var(--text)) 50%, var(--panel) 60%) 0 0 / 300% 100%;
-  animation: skeleton 2.4s linear infinite; }
+/* while no picture: a phone with a home screen, so the layout doesn't jump */
+.mirror-phone { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.mirror-device { font-size: 12.5px; color: var(--muted); line-height: 1.2; white-space: nowrap; }
+.mirror-skeleton { position: relative; height: min(72vh, 700px); aspect-ratio: 71.5 / 149.6; padding: 9px; border-radius: 52px;
+  background: #0d0d10; box-shadow: 0 0 0 1.5px #3a3b40, 0 0 0 3px #1a1b1f, 0 18px 50px -18px rgba(0, 0, 0, .7); }
+.mirror-skeleton::before, .mirror-skeleton::after { content: ""; position: absolute; width: 3px; border-radius: 2px; background: #2b2c31; }
+.mirror-skeleton::before { left: -4.5px; top: 18%; height: 12%; box-shadow: 0 -9.5vh 0 -0.5px #2b2c31; }
+.mirror-skeleton::after { right: -4.5px; top: 26%; height: 15%; }
+.sk-screen { position: relative; height: 100%; overflow: hidden; border-radius: 43px; padding: 0 7%;
+  background: radial-gradient(120% 70% at 20% 10%, #2b3a5c 0%, transparent 60%), radial-gradient(90% 60% at 90% 90%, #4a2f55 0%, transparent 60%), #15161c;
+  display: flex; flex-direction: column; }
+.sk-status { display: flex; align-items: center; justify-content: space-between; height: 9%; color: #f2f2f5; font: 600 12px/1 system-ui, sans-serif; }
+.sk-island { width: 34%; height: 46%; border-radius: 99px; background: #000; }
+.sk-icons { display: flex; gap: 3px; }
+.sk-icons i { width: 12px; height: 7px; border-radius: 2px; background: rgba(255, 255, 255, .85); }
+.sk-icons i:nth-child(1), .sk-icons i:nth-child(2) { width: 8px; opacity: .8; }
+.sk-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6% 9%; margin-top: 7%; }
+.sk-grid i, .sk-dock i { aspect-ratio: 1; border-radius: 24%; background: var(--c); opacity: .78; }
+.sk-dots { display: flex; justify-content: center; gap: 5px; margin: auto 0 4%; }
+.sk-dots i { width: 5px; height: 5px; border-radius: 50%; background: rgba(255, 255, 255, .35); }
+.sk-dots i:first-child { background: rgba(255, 255, 255, .85); }
+.sk-dock { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9%; padding: 4.5% 5%; margin: 0 -3% 6%; border-radius: 30px;
+  background: rgba(255, 255, 255, .12); }
+.sk-screen::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(110deg, transparent 40%, rgba(255, 255, 255, .07) 50%, transparent 60%) 0 0 / 300% 100%;
+  animation: skeleton 2.6s linear infinite; }
 @keyframes skeleton { to { background-position: -300% 0; } }
+.mirror-skeleton .mirror-empty { position: absolute; left: 10%; right: 10%; top: 50%; translate: 0 -50%; z-index: 1; padding: 10px 14px;
+  border-radius: 14px; background: rgba(10, 10, 14, .72); color: #e8e8ee; backdrop-filter: blur(8px); }
 .mirror-empty { max-width: 100%; margin: 0; color: var(--muted); text-align: center; font-size: 12.5px; line-height: 1.5; }
 /* the pointer over the screen: a small dot that dips when pressed and springs back */
 .mirror-cursor { position: absolute; left: 0; top: 0; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
@@ -918,12 +941,16 @@ body.mode-screen #map, body.mode-screen #player { display: none !important; }
 #btn-mirror-rec.recording { color: var(--danger); }
 .mirror-stats { position: absolute; left: 10px; top: 10px; padding: 5px 8px; border-radius: 8px; background: rgba(0, 0, 0, .6);
   color: #fff; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; pointer-events: none; }
-@media (prefers-reduced-motion: reduce) { .mirror-cursor, .mirror-cursor.up { transition: none; } .mirror-skeleton { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .mirror-cursor, .mirror-cursor.up { transition: none; } .sk-screen::after { animation: none; } }
 @media (max-width: 760px) {
   #mirror-view { height: 75vh; flex: none; padding: 12px; }
   .mirror-stage { flex-direction: column; gap: 10px; }
   .mirror-skeleton { height: 52vh; }
+  .mirror-phone { gap: 6px; }
   .mirror-tools { flex-direction: row; flex-wrap: wrap; justify-content: center; width: auto; }
   .mirror-tools button span { display: none; }
   .mirror-tools hr { display: none; }
 }
+#agent-prompt { width: 100%; resize: vertical; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+#settings-tabs { grid-auto-columns: auto; }
+#settings-tabs button { padding: 0 8px; white-space: nowrap; }

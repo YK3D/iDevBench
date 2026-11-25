@@ -892,6 +892,7 @@ async function refreshDevices(userAsked = false) {
     if (userAsked) toast(e.message, true);
   }
   if (state.status) renderDevice(state.status);
+  renderMirrorDevice();
 }
 $("btn-refresh").onclick = () => refreshDevices(true);
 $("driver").onchange = () => { refreshDevices(false); saveSettingsSoon(); };
@@ -2922,6 +2923,7 @@ function openSettings(pane = "appearance") {
     if (pane === "keys") renderShortcutEditor();
   });
   if (pane === "offline") { pollOffline().catch((e) => toast(e.message, true)); updateOfflineEstimate(); }
+  if (pane === "agents") renderAgentSetup().catch((e) => toast(e.message, true));
   if (!settingsDlg.open) settingsDlg.showModal();
 }
 document.querySelectorAll("#settings-tabs button").forEach((b) => (b.onclick = () => openSettings(b.dataset.pane)));
@@ -3325,6 +3327,25 @@ function askKeyframe() {
   mirror.lastKeyAsk = now;
   mirrorSend({ t: "keyframe" });
 }
+// The phone's name and iOS version above it: from the mirroring session, else the chosen device.
+function renderMirrorDevice() {
+  let name = mirror.status.device_name, ios = mirror.status.ios;
+  if (!name) {
+    const udid = $("device-select").value;
+    const d = (state.devices || []).find((x) => !udid || x.udid === udid) || (state.status && state.status.device);
+    if (d) { name = d.name || "iPhone"; ios = d.ios_version; }
+  }
+  $("mirror-device").textContent = name ? `${name}${ios ? ` · iOS ${ios}` : ""}` : "No iPhone connected";
+}
+$("device-select").addEventListener("change", renderMirrorDevice);
+// The placeholder's home screen: a page of app icons and a dock.
+(() => {
+  const colours = ["#ff9f0a", "#30d158", "#0a84ff", "#ff375f", "#bf5af2", "#64d2ff", "#ffd60a", "#ff453a", "#5e5ce6", "#66d4cf", "#ac8e68", "#8e8e93"];
+  const icon = (i) => { const e = document.createElement("i"); e.style.setProperty("--c", colours[(i * 7) % colours.length]); return e; };
+  $("sk-grid").append(...Array.from({ length: 24 }, (_, i) => icon(i)));
+  $("sk-dock").append(...Array.from({ length: 4 }, (_, i) => icon(i + 3)));
+})();
+
 function renderMirror(s) {
   const before = mirrorTurn();
   if ((s.rotation || 0) !== (mirror.status.rotation || 0)) mirror.turn = 0; // the phone says which way it is now
@@ -3342,6 +3363,7 @@ function renderMirror(s) {
   $("mirror-empty").textContent = on && s.simulated ? "Simulator: there is no real screen. Clicks and keys are accepted and ignored."
     : on ? "Waiting for the picture…" : s.state === "error" ? s.error : busy ? "Starting… Unlock the iPhone." : "Press Start mirroring to see the iPhone's screen here.";
   if (mirrorTurn() !== before) turnPicture((mirrorTurn() - before + 360) % 360);
+  renderMirrorDevice();
   if (on) mirrorOpen();
   else if (!busy) mirrorClose();
 }
@@ -3758,6 +3780,33 @@ function setStats(on) {
 }
 $("btn-mirror-stats").onclick = () => setStats(!mirror.stats);
 try { if (localStorage.getItem("ls-mirror-stats")) setStats(true); } catch (_) { /* storage blocked */ }
+
+// ------------------------------------------------------------------ AI agents (MCP)
+// One prompt for any agent that can set itself up (Claude Code, Codex, Cursor, Gemini CLI, ...);
+// Claude Desktop can't, so the app writes its settings file instead.
+async function renderAgentSetup() {
+  const m = await api("/api/mcp/setup");
+  const quote = (a) => (/[\s"]/.test(a) ? JSON.stringify(a) : a);
+  const cmdLine = [m.command, ...m.args].map(quote).join(" ");
+  const env = Object.entries(m.env || {}).map(([k, v]) => `${k}=${v}`).join(", ");
+  $("agent-prompt").value = [
+    "Connect yourself to iDevBench, an app on my computer that controls my iPhone (its screen and its GPS location), by adding it as an MCP server named \"idevbench\". Do the setup yourself with your own MCP settings or commands, using whichever of these your app supports:",
+    `- Streamable HTTP server at ${m.url} (for example: claude mcp add --transport http --scope user idevbench ${m.url})`,
+    `- A local stdio server started with: ${cmdLine}${env ? ` (environment: ${env})` : ""} (for example: codex mcp add idevbench -- ${cmdLine})`,
+    "Add it for my user account, not just this folder. Then reload your tools if needed and call the idevbench \"guide\" tool, which explains how to use the phone. If you can't add MCP servers yourself, tell me exactly where to paste these settings.",
+  ].join("\n");
+  $("agent-claude-status").textContent = m.claude_desktop ? "" : "Claude Desktop doesn't seem to be installed.";
+}
+$("btn-agent-setup").onclick = () => openSettings("agents");
+$("btn-agent-copy").onclick = guard(async () => {
+  if (!$("agent-prompt").value) await renderAgentSetup();
+  await navigator.clipboard.writeText($("agent-prompt").value);
+  toast("Prompt copied. Paste it into your AI agent.");
+});
+$("btn-agent-claude").onclick = guard(async () => {
+  await api("/api/mcp/claude-desktop", { body: {} });
+  $("agent-claude-status").textContent = "Added. Quit Claude completely and open it again.";
+});
 
 // ------------------------------------------------------------------ boot
 wireInfoButtons();

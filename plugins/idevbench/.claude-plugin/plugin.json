@@ -1,0 +1,23 @@
+{
+  "name": "idevbench",
+  "version": "1.0.0",
+  "description": "Use a real iPhone from Claude through the iDevBench app: see and control its screen, set and move its GPS location. Needs iDevBench open on the same computer.",
+  "author": {
+    "name": "YK3D"
+  },
+  "homepage": "https://idevbench.vercel.app",
+  "repository": "https://github.com/YK3D/iPhone-location-spoofer",
+  "keywords": [
+    "iphone",
+    "ios",
+    "mirroring",
+    "location",
+    "testing",
+    "automation"
+  ],
+  "icon": ".claude-plugin/icon.png",
+  "documentationUrl": "https://github.com/YK3D/iPhone-location-spoofer/blob/main/docs/API.md#ai-agents-mcp",
+  "supportUrl": "https://github.com/YK3D/iPhone-location-spoofer/issues",
+  "privacyPolicyUrl": "https://idevbench.vercel.app/privacy",
+  "termsOfServiceUrl": "https://idevbench.vercel.app/terms"
+}

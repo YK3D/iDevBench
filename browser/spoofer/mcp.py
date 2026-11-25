@@ -25,8 +25,12 @@ VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 _spec: Optional[dict] = None
 
 
+_static = Path(".")
+
+
 def spec(static: Path) -> dict:
-    global _spec
+    global _spec, _static
+    _static = static
     if _spec is None:
         _spec = json.loads((static / "mcp-tools.json").read_text(encoding="utf-8"))
     return _spec
@@ -78,6 +82,8 @@ def _text(v: Any) -> dict:
 
 async def run(tool: dict, args: dict, app: Any) -> list:
     steps = tool["call"]
+    if steps[0][0] == "GUIDE":
+        return [_text(_static.joinpath("mcp-guide.md").read_text(encoding="utf-8"))]
     if steps[0][0] == "WAIT":
         ms = min(int(args.get("ms") or 1000), 10000)
         await asyncio.sleep(ms / 1000)
@@ -117,6 +123,62 @@ async def run(tool: dict, args: dict, app: Any) -> list:
     returns = tool.get("returns")
     out = {k: answers[returns[0]].get(k) for k in returns[1]} if returns else answers[-1]
     return [_text(out)]
+
+
+def command(host: str) -> dict:
+    """How AI apps reach this app: the /mcp address (from the address the page used) and the program
+    to start for apps that only start programs (``--mcp``, which passes messages to this app)."""
+    port = host.rsplit(":", 1)[1] if ":" in host else ""
+    extra = ["--port", port] if port.isdigit() and port not in ("8765", "8766") else []
+    if getattr(sys, "frozen", False):
+        return {"url": f"http://{host}/mcp", "command": sys.executable, "args": ["--mcp", *extra], "env": {}}
+    browser_dir = str(Path(__file__).resolve().parents[1])
+    return {"url": f"http://{host}/mcp", "command": sys.executable, "args": ["-m", "spoofer", "--mcp", *extra], "env": {"PYTHONPATH": browser_dir}}
+
+
+def claude_desktop_configs() -> list[Path]:
+    """Claude Desktop's config files: %APPDATA%\\Claude (or the Microsoft Store copy's), ~/Library/Application Support/Claude, ~/.config/Claude."""
+    import os
+
+    name = "claude_desktop_config.json"
+    if os.environ.get("SPOOFER_CLAUDE_DESKTOP_DIR"):
+        return [Path(os.environ["SPOOFER_CLAUDE_DESKTOP_DIR"]) / name]
+    if sys.platform == "win32":
+        dirs = [Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Claude"]
+        packages = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "Packages"
+        if packages.is_dir():
+            dirs += [p / "LocalCache" / "Roaming" / "Claude" for p in packages.glob("Claude_*")]
+    elif sys.platform == "darwin":
+        dirs = [Path.home() / "Library" / "Application Support" / "Claude"]
+    else:
+        dirs = [Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "Claude"]
+    existing = [d / name for d in dirs if d.exists()]
+    return existing or [dirs[0] / name]
+
+
+def add_to_claude_desktop(host: str) -> list[str]:
+    """Adds this app to Claude Desktop's MCP servers, keeping everything else in its config."""
+    cmd = command(host)
+    entry = {"command": cmd["command"], "args": cmd["args"], **({"env": cmd["env"]} if cmd["env"] else {})}
+    written = []
+    for path in claude_desktop_configs():
+        cfg: Any = {}
+        if path.exists() and path.read_text(encoding="utf-8").strip():
+            try:
+                cfg = json.loads(path.read_text(encoding="utf-8"))
+            except ValueError:
+                raise ValueError(f"Claude Desktop's settings file can't be read, so it was left alone: {path}") from None
+        if not isinstance(cfg, dict):
+            raise ValueError(f"Claude Desktop's settings file has an unexpected shape, so it was left alone: {path}")
+        if not isinstance(cfg.get("mcpServers"), dict):
+            cfg["mcpServers"] = {}
+        cfg["mcpServers"]["idevbench"] = entry
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        tmp.replace(path)
+        written.append(str(path))
+    return written
 
 
 def bridge(port: Optional[int]) -> None:

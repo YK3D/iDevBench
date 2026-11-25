@@ -136,7 +136,10 @@ async fn stream(
     ld.start_session(&pairing).await.map_err(fr)?;
     let version = ld.get_value(Some("ProductVersion"), None).await.ok().and_then(|v| v.as_string().map(String::from)).unwrap_or_default();
     let chip = ld.get_value(Some("UniqueChipID"), None).await.ok().and_then(|v| v.as_unsigned_integer());
+    let name = ld.get_value(Some("DeviceName"), None).await.ok().and_then(|v| v.as_string().map(String::from));
     drop(ld);
+    let ios = Some(version.clone()).filter(|v| !v.is_empty());
+    m.set(session, |s| (s.device_name, s.ios) = (name, ios));
     if idev::major(&version) < 27 {
         return Err(format!("Screen mirroring needs iOS 27 or newer. This iPhone has iOS {version}."));
     }

@@ -111,15 +111,21 @@ with connect("ws://127.0.0.1:8766/api/screen/ws") as ws:
 
 ## AI agents (MCP)
 
-iDevBench is a [Model Context Protocol](https://modelcontextprotocol.io) server: AI agents (Claude, Cursor, VS Code, Windsurf and others) get tools for everything the app does with the phone. Location: `get_status`, `list_devices`, `connect_device`, `search_place`, `parse_map_link`, `set_location`, `clear_location`, `drive_route`, `play_track`, `playback`, `seek_playback`, `playback_options`, `joystick`, `list_favourites`, `mount_developer_image`, `reveal_developer_mode`. Screen: `start_mirroring`, `stop_mirroring`, `mirroring_status`, `screenshot`, `tap`, `long_press`, `swipe`, `gesture`, `press_button`, `type_text`, `press_key`, `refresh_mirroring`, `phone_performance`, `wait`. The list and descriptions are in [`ui/mcp-tools.json`](../ui/mcp-tools.json). The app must be open.
+iDevBench is a [Model Context Protocol](https://modelcontextprotocol.io) server: AI agents (Claude, Codex, Cursor, Gemini, VS Code and others) get tools for everything the app does with the phone. Location: `get_status`, `list_devices`, `connect_device`, `search_place`, `parse_map_link`, `set_location`, `clear_location`, `drive_route`, `play_track`, `playback`, `seek_playback`, `playback_options`, `joystick`, `list_favourites`, `mount_developer_image`, `reveal_developer_mode`. Screen: `start_mirroring`, `stop_mirroring`, `mirroring_status`, `screenshot`, `tap`, `long_press`, `swipe`, `gesture`, `press_button`, `type_text`, `press_key`, `refresh_mirroring`, `phone_performance`, `wait`. And `guide`, which teaches the agent how to work with the phone (no skill files to install). The list and descriptions are in [`ui/mcp-tools.json`](../ui/mcp-tools.json), the guide in [`ui/mcp-guide.md`](../ui/mcp-guide.md). The app must be open.
 
-**Apps that connect to a URL** (Claude Code, Cursor, VS Code): `http://127.0.0.1:8766/mcp` (the browser edition: port 8765). For Claude Code:
+**The easy way:** *Settings › AI agents* (or *Connect an AI agent* in the Mirroring section) has a prompt to copy and paste into the agent once; the agent adds iDevBench to its own settings. Claude Desktop can't do that from a chat, so the same page has *Add to Claude Desktop*.
+
+**Claude Code plugin:** this repository is a plugin marketplace.
 
 ```bash
-claude mcp add --transport http idevbench http://127.0.0.1:8766/mcp
+claude plugin marketplace add YK3D/iPhone-location-spoofer
 ```
 
-**Apps that start a program** (Claude Desktop and others): the app itself, with `--mcp`. In Claude Desktop's `claude_desktop_config.json`:
+```bash
+claude plugin install idevbench@idevbench
+```
+
+**By hand:** apps that connect to a URL use `http://127.0.0.1:8766/mcp` (the browser edition: port 8765), for example `claude mcp add --transport http --scope user idevbench http://127.0.0.1:8766/mcp`. Apps that start a program use the app itself with `--mcp`, for example in Claude Desktop's `claude_desktop_config.json`:
 
 ```json
 { "mcpServers": { "idevbench": { "command": "C:\\path\\to\\LocationSpooferStandalone.exe", "args": ["--mcp"] } } }
@@ -127,6 +133,4 @@ claude mcp add --transport http idevbench http://127.0.0.1:8766/mcp
 
 `--mcp` only passes messages to the app that is already open (either edition); it opens no window.
 
-**Skill:** [`agents/skills/idevbench`](../agents/skills/idevbench/SKILL.md) teaches an agent how to work with the phone: look, act once, look again; positions as fractions of the screenshot; what not to do on someone's real phone. For Claude Code, copy the folder to `~/.claude/skills/` (or a project's `.claude/skills/`); in Claude Desktop, add it under *Settings › Capabilities › Skills*.
-
-The agent sees what the screenshots show, and the AI service it runs on receives them. Keep an eye on what it does: its taps act on the real phone.
+The agent sees what the screenshots show, and the AI service it runs on receives them, along with anything you tell the agent (for example a passcode you give it to unlock the phone). Keep an eye on what it does: its taps act on the real phone.

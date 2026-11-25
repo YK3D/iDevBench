@@ -1,11 +1,11 @@
 ---
 name: idevbench
-description: Operate a real iPhone through the iDevBench MCP tools - its screen (screenshot, tap, swipe, type, gestures, buttons) and its GPS location (teleport, drive routes, play tracks, joystick). Use when asked to test, use or automate an iOS app on a connected iPhone, or to check how an app behaves at another place or while moving.
+description: Use a real iPhone through iDevBench - see and control its screen (screenshot, tap, swipe, type, gestures, buttons) and set or move its GPS location (teleport, routes, tracks, joystick). Use when asked to test, use or automate an iOS app on a connected iPhone, or to check how an app behaves at another place or while moving.
 ---
 
 # Using an iPhone through iDevBench
 
-The `idevbench` MCP tools control a real iPhone plugged into this computer, through the iDevBench app (which must be open). The phone belongs to the user: act carefully.
+The `idevbench` tools control a real iPhone connected to this computer, through the iDevBench app (which must be open). The phone belongs to the user: act carefully.
 
 ## Location
 
@@ -35,10 +35,18 @@ Positions are fractions of the screenshot: `x = pixel x / width`, `y = pixel y /
 | Volume, lock, Siri | `press_button` |
 | How hard the phone works | `phone_performance` (ask twice; the first call starts measuring) |
 
+## The passcode
+
+If the phone is locked, ask the user to unlock it. Unlock it yourself only when the user asks you to and gives you the passcode in this conversation:
+
+1. `press_button` lock to wake the screen if it is dark, then `gesture` home (swipe up) to show the keypad, and `screenshot`.
+2. `type_text` the passcode (if nothing appears, `tap` the keypad digits instead), then `screenshot` to check it opened.
+3. Use the passcode only to unlock. Never write it into files, notes, logs or other apps, and don't repeat it back.
+4. Never guess a passcode, and stop after one failed attempt: wrong passcodes lock the iPhone for longer and longer and can erase it.
+
 ## Care
 
-- Don't buy anything, send messages, post, delete data, change passwords or accept terms unless the user asked for exactly that; ask first when an action can't be undone.
+- Don't buy anything, send messages, post, delete data, change passwords or settings, or accept terms unless the user asked for exactly that; ask first when an action can't be undone.
 - Screenshots can show private information (messages, notifications). Use only what the task needs and don't repeat the rest.
 - Permission alerts (location, notifications, tracking): choose what the task needs; ask when unsure.
-- You can't type the passcode: if the phone locks, ask the user to unlock it.
 - When finished, say what you did and what you saw.

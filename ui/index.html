@@ -466,6 +466,7 @@
           <label class="check"><input id="mirror-audio" type="checkbox" checked> Play the iPhone's sound</label>
           <button id="btn-mirror" class="primary">Start mirroring</button>
           <div id="mirror-status" class="status">Not mirroring</div>
+          <button id="btn-agent-setup" type="button">Connect an AI agent</button>
         </div>
       </details>
     </div>
@@ -501,12 +502,23 @@
   </main>
   <section id="mirror-view" aria-label="iPhone screen" hidden>
     <div class="mirror-stage">
+      <div class="mirror-phone">
+      <div class="mirror-device" id="mirror-device">No iPhone connected</div>
       <div class="mirror-screen" id="mirror-screen">
         <canvas id="mirror-canvas" tabindex="0" aria-label="The iPhone's screen. Click to tap; type to send keys."></canvas>
         <canvas id="mirror-trail" class="mirror-trail" aria-hidden="true"></canvas>
         <span id="mirror-cursor" class="mirror-cursor" hidden></span>
         <div id="mirror-stats" class="mirror-stats" hidden></div>
-        <div class="mirror-skeleton"><p id="mirror-empty" class="mirror-empty">Press Start mirroring to see the iPhone's screen here.</p></div>
+        <div class="mirror-skeleton">
+          <div class="sk-screen">
+            <div class="sk-status"><span>9:41</span><span class="sk-island"></span><span class="sk-icons"><i></i><i></i><i></i></span></div>
+            <div class="sk-grid" id="sk-grid"></div>
+            <div class="sk-dots"><i></i><i></i><i></i></div>
+            <div class="sk-dock" id="sk-dock"></div>
+            <p id="mirror-empty" class="mirror-empty">Press Start mirroring to see the iPhone's screen here.</p>
+          </div>
+        </div>
+      </div>
       </div>
       <div class="mirror-tools" id="mirror-tools" role="toolbar" aria-label="iPhone buttons and gestures" aria-orientation="vertical">
         <button data-button="home" title="Home button"><svg class="ico"><use href="#i-home"/></svg><span>Home</span></button>
@@ -541,6 +553,7 @@
       <button type="button" data-pane="google">Google Maps</button>
       <button type="button" data-pane="offline">Offline maps</button>
       <button type="button" data-pane="screen">Mirroring</button>
+      <button type="button" data-pane="agents">AI agents</button>
       <button type="button" data-pane="updates">Updates</button>
       <button type="button" data-pane="about">About</button>
     </nav>
@@ -612,6 +625,14 @@
         <button id="btn-capture-browse" type="button" class="fixed">Browse…</button></span>
       </label>
       <p class="hint">Leave it empty for your Downloads folder.</p>
+    </section>
+    <section class="pane" data-pane="agents" hidden>
+      <p class="hint">Let an AI agent (Claude, ChatGPT Codex, Cursor, Gemini and others) use your iPhone through iDevBench: see and control the screen, set its location and drive routes. Copy this prompt and paste it into the agent once. Keep iDevBench open while the agent works.</p>
+      <textarea id="agent-prompt" rows="9" readonly spellcheck="false"></textarea>
+      <div class="field-row"><button id="btn-agent-copy" type="button" class="primary grow">Copy prompt</button></div>
+      <h3>Claude Desktop</h3>
+      <p class="hint">The Claude app for Windows and Mac can't set this up from a chat. This button adds iDevBench to it; then quit Claude completely and open it again.</p>
+      <div class="field-row"><button id="btn-agent-claude" type="button" class="fixed">Add to Claude Desktop</button><span id="agent-claude-status" class="small muted"></span></div>
     </section>
     <section class="pane" data-pane="updates" hidden>
       <label>Update channel

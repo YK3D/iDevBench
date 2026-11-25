@@ -428,7 +428,7 @@ def _stream_config(answer: Any) -> tuple[int, int, int]:
 
 def _status(**kw) -> dict:
     s = {"state": "off", "error": None, "simulated": False, "width": None, "height": None, "audio": False, "note": None,
-         "rotation": 0}
+         "rotation": 0, "device_name": None, "ios": None}
     s.update(kw)
     return s
 
@@ -497,7 +497,7 @@ class Screen:
         self._set(session)
         if simulated:
             self._live = None
-            self._set(session, state="on", width=1170, height=2532,
+            self._set(session, state="on", width=1170, height=2532, device_name="Simulated iPhone", ios="27.0",
                       note="Simulator: there is no real screen; input is accepted and ignored.")
             return dict(self.status)
         ready: asyncio.Future = asyncio.get_running_loop().create_future()
@@ -671,6 +671,7 @@ class _Live:
         self.lockdown = lockdown
         stack.push_async_callback(self._stop_perf)
         version = lockdown.product_version
+        self.m._set(self.session, device_name=lockdown.all_values.get("DeviceName") or None, ios=version or None)
         if _major(version) < 27:
             raise ScreenError(f"Screen mirroring needs iOS 27 or newer. This iPhone has iOS {version}.")
         driver = Pmd3Driver()

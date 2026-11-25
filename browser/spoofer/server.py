@@ -1025,10 +1025,18 @@ async def screen_perf():
     return S().screen.get_perf()
 
 
-# Windows' folder dialog, on top of other windows; prints the chosen folder in UTF-8.
-PICK_FOLDER_PS = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; "
-                  "$o=New-Object System.Windows.Forms.Form -Property @{TopMost=$true}; $d=New-Object System.Windows.Forms.FolderBrowserDialog; "
-                  "$d.Description='Folder for screenshots and recordings'; if($d.ShowDialog($o) -eq 'OK'){$d.SelectedPath}")
+# Windows' folder dialog. This server runs in the background, so the dialog gets a visible
+# (invisible-looking) topmost owner window to come up in front; the path is written as UTF-8
+# bytes because a background process has no console to set an encoding on.
+PICK_FOLDER_PS = (
+    "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
+    "$o=New-Object System.Windows.Forms.Form -Property @{TopMost=$true;ShowInTaskbar=$false;FormBorderStyle='None';Opacity=0;"
+    "StartPosition='Manual';Location=(New-Object System.Drawing.Point(-2000,-2000));Size=(New-Object System.Drawing.Size(1,1))}; "
+    "$o.Show(); $o.Activate(); $d=New-Object System.Windows.Forms.FolderBrowserDialog; "
+    "$d.Description='Folder for screenshots and recordings'; $d.ShowNewFolderButton=$true; "
+    "if($d.ShowDialog($o) -eq 'OK'){$b=[Text.Encoding]::UTF8.GetBytes($d.SelectedPath);$s=[Console]::OpenStandardOutput();$s.Write($b,0,$b.Length);$s.Flush()}; "
+    "$o.Close()"
+)
 
 
 @app.post("/api/pick-folder")
@@ -1049,6 +1057,18 @@ async def pick_folder():
         raise HTTPException(400, "This computer has no folder picker the app can use. Type the folder's path instead.") from None
     path = out.stdout.decode("utf-8", "replace").strip()
     return {"path": path or None}
+
+
+@app.get("/api/mcp/setup")
+async def mcp_setup(request: Request):
+    v = mcp.command(request.headers.get("host", "127.0.0.1:8765"))
+    v["claude_desktop"] = any(p.exists() for p in mcp.claude_desktop_configs())
+    return v
+
+
+@app.post("/api/mcp/claude-desktop")
+async def mcp_claude_desktop(request: Request):
+    return {"paths": await asyncio.to_thread(mcp.add_to_claude_desktop, request.headers.get("host", "127.0.0.1:8765"))}
 
 
 @app.post("/mcp")

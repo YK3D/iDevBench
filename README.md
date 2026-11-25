@@ -143,7 +143,7 @@ Both have the same look and features (apart from the differences above), and bot
 * **Screenshots and recordings:** save a picture, or record the screen with its sound as a video file, to your Downloads folder or a folder you choose in *Settings › Mirroring*.
 * **Stats** shows the stream's frame rate, data rate and delay, and the iPhone's CPU, memory, GPU, battery and temperature; **Restart stream** restarts a frozen picture (the app also does this by itself).
 * **For developers:** other programs on your computer can watch the screen, tap, type and set the location through the [local API](docs/API.md).
-* **AI agents:** connect Claude, Cursor or another AI app to iDevBench (it is an MCP server) and the agent can use the phone: see the screen, tap and type, set the location and drive routes. [How to connect it](docs/API.md#ai-agents-mcp).
+* **AI agents:** connect Claude, Codex, Cursor or another AI app to iDevBench and the agent can use the phone: see the screen, tap and type, set the location and drive routes. *Settings › AI agents* has one prompt to paste into the agent, and a button for Claude Desktop. There is also a [Claude Code plugin](docs/API.md#ai-agents-mcp).
 
 </details>
 

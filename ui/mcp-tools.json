@@ -1,6 +1,21 @@
 {
- "instructions": "Controls a real iPhone through the iDevBench app: its GPS location (teleport, routes, tracks, joystick) and, with iOS 27+, its screen. For the screen: start_mirroring once, then repeat screenshot, one action, screenshot. Positions are fractions of the screenshot. Don't buy, send, post or delete anything unless the user asked for exactly that.",
+ "instructions": "Controls a real iPhone through the iDevBench app: its GPS location (teleport, routes, tracks, joystick) and, with iOS 27+, its screen. Call the guide tool first: it explains how to work with the phone. For the screen: start_mirroring once, then repeat screenshot, one action, screenshot. Positions are fractions of the screenshot. Don't buy, send, post or delete anything unless the user asked for exactly that. Enter the passcode only if the user asks you to and gives it to you; never store or repeat it.",
  "tools": [
+  {
+   "name": "guide",
+   "description": "How to use the iPhone through these tools: the look-act-look loop, positions, scrolling, typing, gestures, routes, what not to do, and the passcode rules. Read it before the first action.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "GUIDE"
+    ]
+   ]
+  },
   {
    "name": "get_status",
    "description": "iDevBench's state: the connected iPhone, location playback (state, position, speed) and the app version.",

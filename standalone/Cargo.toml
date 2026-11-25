@@ -75,6 +75,8 @@ fdk-aac = "0.8"
 [target.'cfg(windows)'.dependencies]
 webview2-com = { version = "0.38", optional = true }
 windows-core = { version = "0.61", optional = true }
+# The folder picker in Settings › Mirroring (Windows' own dialog, opened from the app).
+rfd = { version = "0.15", default-features = false }
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"

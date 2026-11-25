@@ -56,3 +56,29 @@ def test_drives_location_and_mirroring(rpc):
     assert call(rpc, "screenshot")["isError"]  # the simulator has no screen
     bad = call(rpc, "tap", x=2, y=0)
     assert bad["isError"] and "0 to 1" in bad["content"][0]["text"]
+
+
+def test_adds_itself_to_claude_desktop_keeping_other_settings(rpc, tmp_path, monkeypatch):
+    cfg_dir = tmp_path / "Claude"
+    cfg_dir.mkdir()
+    (cfg_dir / "claude_desktop_config.json").write_text('{"theme": "dark", "mcpServers": {"other": {"command": "x"}}}')
+    monkeypatch.setenv("SPOOFER_CLAUDE_DESKTOP_DIR", str(cfg_dir))
+    c = rpc.client
+    setup = c.get("/api/mcp/setup", headers={"host": "127.0.0.1:9123"}).json()
+    assert setup["url"] == "http://127.0.0.1:9123/mcp" and setup["args"][-3:] == ["--mcp", "--port", "9123"]
+    assert c.post("/api/mcp/claude-desktop", headers={"host": "127.0.0.1:9123"}).status_code == 200
+    cfg = json.loads((cfg_dir / "claude_desktop_config.json").read_text())
+    assert cfg["theme"] == "dark" and cfg["mcpServers"]["other"] == {"command": "x"}
+    assert "--mcp" in cfg["mcpServers"]["idevbench"]["args"]
+    assert "passcode" in call(rpc, "guide")["content"][0]["text"]
+
+
+def test_plugin_skill_matches_the_guide():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    guide = (root / "ui" / "mcp-guide.md").read_text(encoding="utf-8")
+    skill = (root / "plugins" / "idevbench" / "skills" / "idevbench" / "SKILL.md").read_text(encoding="utf-8")
+    assert skill.split("---\n", 2)[2].strip() == guide.strip()
+    mcp_cfg = json.loads((root / "plugins" / "idevbench" / ".mcp.json").read_text())
+    assert mcp_cfg["mcpServers"]["idevbench"] == {"type": "http", "url": "http://127.0.0.1:8766/mcp"}
