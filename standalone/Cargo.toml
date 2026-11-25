@@ -2,7 +2,7 @@
 name = "location-spoofer"
 version = "0.1.0"
 edition = "2021"
-description = "Standalone desktop app that simulates an iPhone's GPS location over USB"
+description = "Sideport: standalone desktop app for working with an iPhone over USB"
 license-file = "../LICENSE"
 authors = ["YK3D"]
 publish = false
@@ -78,5 +78,5 @@ strip = true
 panic = "unwind"
 
 [package.metadata.winres]
-ProductName = "Location Spoofer"
-FileDescription = "Location Spoofer (standalone)"
+ProductName = "Sideport"
+FileDescription = "Sideport"

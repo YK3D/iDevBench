@@ -1,8 +1,8 @@
 # Privacy Policy
 
-_Last updated: 5 November 2026_
+_Last updated: 25 November 2026_
 
-This policy covers both editions of Location Spoofer: the standalone app (`LocationSpooferStandalone.exe`) and the browser version (`LocationSpooferBrowser.exe` or run from source). Together they are called "the app".
+This policy covers both editions of Sideport, formerly called Location Spoofer: the standalone app (`LocationSpooferStandalone.exe`) and the browser version (`LocationSpooferBrowser.exe` or run from source). Together they are called "the app".
 
 ## The short version
 
@@ -10,6 +10,8 @@ This policy covers both editions of Location Spoofer: the standalone app (`Locat
 * Everything you create — favourites, saved routes, settings, an optional Google API key — is stored **only on your computer**.
 * To show maps, find places and calculate routes, the app talks **directly from your computer to third-party online services** listed below. Those services receive the information needed to answer each request (for example map coordinates or a search term) and your IP address, under their own privacy policies.
 * The app talks to your iPhone **only over the USB cable or your local network**; nothing about the phone is sent to the internet by the app.
+* **Screen mirroring** (the picture, the sound and your clicks and key presses) travels only between the phone and your computer. The app does not upload it, analyse it or keep a copy. Only screenshots and recordings that you save are written to disk, where you choose.
+* The **API for other programs** is off by default. If you turn it on, programs on your computer that have the API key can receive the phone's screen and sound and control the phone. What they do with it is covered by their own privacy policies.
 
 ## What is stored on your computer
 
@@ -22,8 +24,12 @@ This policy covers both editions of Location Spoofer: the standalone app (`Locat
 | Offline maps: downloaded map areas, and the map styles and fonts | `offline` folder next to `data.json` | So the map works without internet. Delete areas in Settings › Offline maps |
 | Developer access only: the remembered developer password and downloaded feature-test builds | `feature-tests` folder next to `data.json` | Only if the developer unlocks feature tests and ticks "Remember" |
 | Downloaded updates | Next to the app's `.exe` until installed | Self-update |
+| Screenshots and screen recordings (only the ones you save) | The folder you pick when saving (usually *Downloads*) | So you can keep them. The app does not keep its own copy |
+| API key and the API on/off setting (only if you turn the API on) | `api.json` next to `data.json` | So programs you trust can use the API. It is never included in backup exports |
 
 You can delete all of it at any time by deleting those folders. Uninstalling the app (deleting the `.exe`) does not delete `data.json`.
+
+While screen mirroring is on, the most recent pictures and sound from the phone are held briefly in the computer's memory so they can be shown and played. They are gone when you stop mirroring or close the app.
 
 ## Online services the app contacts
 
@@ -43,11 +49,15 @@ The app sends requests **directly** to these services. No data passes through se
 | GitHub (`api.github.com`, `github.com`, `release-assets.githubusercontent.com`) | Update checks (at start-up and every few hours) and update downloads; for the developer only, encrypted feature-test builds after unlocking *Developer access* | Your IP address and app version (in the request) | [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement) |
 | GitHub raw content (`raw.githubusercontent.com/doronz88/DeveloperDiskImage`) | Only when the iPhone has no Developer Disk Image mounted | The requested file path, IP address | [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement) |
 
-Straight-line and sea-lane routes, coordinate entry, GPX files, the simulator and downloaded offline map areas work **offline** and contact none of these services. Update checks can be turned off by starting the app with `--no-update`.
+Screen mirroring, screenshots, recordings, the API, straight-line and sea-lane routes, coordinate entry, GPX files, the simulator and downloaded offline map areas work **offline** and contact none of these services (the Developer Disk Image may be downloaded once, as listed above). Update checks can be turned off by starting the app with `--no-update`.
 
 ## Your real location
 
 When you press **Show my real location** or **Stop spoofing**, the app asks your computer's operating system for its approximate position. That request is handled by Windows (or your browser) and may involve its own location services; you can deny the permission. The position is only drawn on the map and is not stored or sent anywhere by the app.
+
+## Other people on your screen
+
+Mirrored pictures, sound and recordings can show other people's messages, photos, names and voices. You decide whether to save or share them, and the [Terms of Use](TERMS.md) ask you to respect the law and other people's privacy when you do.
 
 ## Children
 

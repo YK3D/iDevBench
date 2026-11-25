@@ -50,7 +50,7 @@ def fake_ofm(requests: list):
     def handler(req: httpx.Request) -> httpx.Response:
         path = req.url.raw_path.decode().removeprefix("/")
         requests.append(path)
-        assert req.headers["user-agent"].startswith("LocationSpoofer/")
+        assert req.headers["user-agent"].startswith("Sideport/")
         if path == "planet":
             return httpx.Response(200, json={"tiles": ["https://tiles.openfreemap.org/planet/v1/{z}/{x}/{y}.pbf"]})
         if path.startswith("styles/"):

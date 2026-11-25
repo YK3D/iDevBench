@@ -1,6 +1,6 @@
 # Third-party notices
 
-Location Spoofer is built on open-source software and public data services. This file lists what is included in each edition, under which licence, and which online services the app uses at run time.
+Sideport (formerly Location Spoofer) is built on open-source software and public data services. This file lists what is included in each edition, under which licence, and which online services the app uses at run time.
 
 ## Licences of this project
 

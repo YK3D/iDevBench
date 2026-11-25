@@ -141,7 +141,7 @@ pub fn write_gpx(samples: &[TimelinePoint], name: &str, waypoints: &[(f64, f64, 
     let start = Utc.timestamp_opt(start.timestamp(), 0).single().unwrap_or(start);
     let mut s = String::new();
     s.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    s.push_str("<gpx version=\"1.1\" creator=\"Location Spoofer\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n");
+    s.push_str("<gpx version=\"1.1\" creator=\"Sideport\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n");
     s.push_str(&format!("  <metadata><name>{}</name><time>{}</time></metadata>\n", esc(name), fmt_time(start)));
     for (lat, lon, n) in waypoints {
         s.push_str(&format!("  <wpt lat=\"{lat:.7}\" lon=\"{lon:.7}\"><name>{}</name></wpt>\n", esc(n)));

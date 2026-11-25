@@ -1,4 +1,4 @@
-//! Location Spoofer — standalone desktop app.
+//! Sideport (formerly Location Spoofer) — standalone desktop app.
 //! Copyright (c) 2026 YK3D. All rights reserved. Licensed under the Location Spoofer License (LICENSE).
 //!
 //! A local HTTP server (axum) serves the UI and its JSON API on 127.0.0.1; a native window
@@ -132,20 +132,20 @@ fn main() {
             None => start_server(&rt, bind(0).expect("bind"), upd),
         },
     };
-    tracing::info!("Location Spoofer running at {url}");
+    tracing::info!("Sideport running at {url}");
 
     #[cfg(feature = "gui")]
     if !args.no_window {
         let restart = server_task.clone();
         let title = match args.feature_test {
-            Some(pr) => format!("Location Spoofer · feature test #{pr}"),
-            None => "Location Spoofer".to_string(),
+            Some(pr) => format!("Sideport · feature test #{pr}"),
+            None => "Sideport".to_string(),
         };
         gui::run(url, title, restart, args.raw.clone(), rt);
         return;
     }
     let _ = open::that(&url);
-    println!("Location Spoofer is running at {url} — press Ctrl+C to quit.");
+    println!("Sideport is running at {url} — press Ctrl+C to quit.");
     rt.block_on(async {
         match server_task {
             Some(app) => {
@@ -189,7 +189,7 @@ fn start_server(rt: &tokio::runtime::Runtime, listener: tokio::net::TcpListener,
     (format!("http://{addr}/"), Some(app))
 }
 
-/// The version of the Location Spoofer already listening at `url`, if it is one.
+/// The version of Sideport already listening at `url`, if it is one.
 async fn running_version(url: &str) -> Option<String> {
     let r = reqwest::Client::new().get(format!("{url}api/status")).timeout(std::time::Duration::from_secs(2)).send().await.ok()?;
     let v: serde_json::Value = r.json().await.ok()?;
@@ -230,7 +230,7 @@ async fn self_test() -> i32 {
     checks.push(("sea network", routing::sea_route((49.49, 0.10), (50.9, 1.8)).map(|r| r.len() > 2).unwrap_or(false)));
     checks.push(("Google link parser", gmaps_links::parse("https://www.google.com/maps/@40.7,-74.0,15z").is_ok()));
     let ok = checks.iter().all(|c| c.1);
-    println!("Location Spoofer (standalone) {} self-test", updater::current_version());
+    println!("Sideport (standalone) {} self-test", updater::current_version());
     for (n, v) in &checks {
         println!("  {} {n}", if *v { "OK  " } else { "FAIL" });
     }

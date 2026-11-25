@@ -1,13 +1,15 @@
-<p align="center"><img src="assets/icon/icon-256.png" width="96" height="96" alt="Location Spoofer icon"></p>
+<p align="center"><img src="assets/icon/icon-256.png" width="96" height="96" alt="Sideport icon"></p>
 
-<h1 align="center">Location Spoofer</h1>
+<h1 align="center">Sideport</h1>
 
-<p align="center"><b>A free Windows app that sets your iPhone's GPS location over USB, with no jailbreak.</b><br>
-Teleport anywhere, drive routes that follow real roads at realistic speeds (with bends, roundabouts and braking), replay GPX files, or walk around live with the keyboard. No accounts, no telemetry.</p>
+<p align="center"><b>A free Windows toolkit for working with your iPhone over USB, with no jailbreak and no Mac.</b><br>
+Set the iPhone's GPS location: teleport anywhere, drive routes that follow real roads at realistic speeds (with bends, roundabouts and braking), replay GPX files, or walk around live with the keyboard. No accounts, no telemetry.</p>
+
+<p align="center"><sub>Sideport was previously called <i>Location Spoofer</i>. Updating keeps your settings, favourites and routes.</sub></p>
 
 <p align="center">
   <a href="https://iphone-spoofer.vercel.app"><b>Website and live demo</b></a> ·
-  <a href="https://github.com/YK3D/iPhone-location-spoofer/releases?q=standalone&expanded=true"><b>⬇ Download the app (Standalone)</b></a> ·
+  <a href="https://github.com/YK3D/iPhone-location-spoofer/releases?q=standalone&expanded=true"><b>⬇ Download Sideport</b></a> ·
   <a href="https://github.com/YK3D/iPhone-location-spoofer/releases?q=browser&expanded=true">Browser edition</a> ·
   <a href="#getting-started">Getting started</a> ·
   <a href="#features">Features</a> ·
@@ -37,7 +39,7 @@ Most people should use the **standalone app**. The browser edition exists for iP
 | iOS 17.4 and newer, iOS 16 and older | ✅ | ✅ |
 | iOS 17.0–17.3 | ❌ | ✅ (needs administrator permission once per session) |
 
-Both have the same look and features, and both update themselves.
+Both have the same look and features, and both update themselves. The download files keep their original names (`LocationSpooferStandalone.exe` and `LocationSpooferBrowser.exe`) so copies that are already installed keep updating.
 
 ## Getting started
 
@@ -73,7 +75,7 @@ Both have the same look and features, and both update themselves.
 | A speedometer app on the iPhone shows 0, or the heading arrow doesn't turn | Apple's location simulation only carries a position, so iOS reports no speed or course for it. Apps that work out speed from movement (navigation apps, most games) are fine. The app's own map shows the simulated speed and heading |
 | "My real location" says Windows blocked it | Turn on *Settings › Privacy & security › Location* and "Let desktop apps access your location" (the message has a button for it) |
 | Location stays wrong after you finish | Press **Stop spoofing**, or restart the iPhone |
-| The app shows an older version number | An older copy is still running in the background. Close every Location Spoofer window, end any **location-spoofer** or **LocationSpooferStandalone** task in Task Manager, then open the new file |
+| The app shows an older version number | An older copy is still running in the background. Close every Sideport window, end any **location-spoofer** or **LocationSpooferStandalone** task in Task Manager, then open the new file |
 | Something else | [Open an issue](https://github.com/YK3D/iPhone-location-spoofer/issues/new) and describe what happened, with the app's version (*Settings › About*) |
 
 </details>
@@ -209,7 +211,7 @@ The app has no accounts, no analytics and no telemetry. Your favourites, routes 
 
 ## Licence
 
-Location Spoofer is free to download and use, but it is **not open source**: © 2026 YK3D, all rights reserved.
+Sideport is free to download and use, but it is **not open source**: © 2026 YK3D, all rights reserved.
 
 * You may use the app, read its code and suggest changes through pull requests.
 * You may **not** copy its code, interface or icon into other projects, redistribute it, sell it or publish modified versions **without written permission**, and any permitted use must credit "Location Spoofer by YK3D". See [LICENSE](LICENSE).
@@ -217,4 +219,4 @@ Location Spoofer is free to download and use, but it is **not open source**: © 
 * Third-party components keep their own licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 * To ask for permission, [open an issue](https://github.com/YK3D/iPhone-location-spoofer/issues/new). Security problems: see [SECURITY.md](SECURITY.md). Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Location Spoofer is an independent project and is not affiliated with, endorsed by or sponsored by Apple Inc. or Google LLC. iPhone is a trademark of Apple Inc.; Google Maps is a trademark of Google LLC.
+Sideport is an independent project and is not affiliated with, endorsed by or sponsored by Apple Inc. or Google LLC. iPhone is a trademark of Apple Inc.; Google Maps is a trademark of Google LLC.

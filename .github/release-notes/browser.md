@@ -1,4 +1,4 @@
-**Location Spoofer Browser Edition {VERSION}** — the edition that runs in your web browser, built on pymobiledevice3. Use it if you need iOS 17.0–17.3 support or the pymobiledevice3 command fallback; otherwise the native Windows app is recommended.{CHANNEL_NOTE}
+**Sideport Browser Edition {VERSION}** (formerly Location Spoofer) — the edition that runs in your web browser, built on pymobiledevice3. Use it if you need iOS 17.0–17.3 support or the pymobiledevice3 command fallback; otherwise the native Windows app is recommended.{CHANNEL_NOTE}
 
 ### Install
 1. Install [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store (free, made by Apple; iTunes also works).

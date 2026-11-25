@@ -4,7 +4,7 @@ Bug reports and ideas are welcome as [GitHub issues](https://github.com/YK3D/iPh
 
 ## Licence of contributions
 
-Location Spoofer is source-available, not open source (see [LICENSE](LICENSE)). By opening a pull request you confirm that you have the right to submit the change, and you grant YK3D the licence described in section 4 of [LICENSE](LICENSE), so the change can be included and relicensed with the app. You keep the copyright in your contribution and are credited in the history.
+Sideport (formerly Location Spoofer) is source-available, not open source (see [LICENSE](LICENSE)). By opening a pull request you confirm that you have the right to submit the change, and you grant YK3D the licence described in section 4 of [LICENSE](LICENSE), so the change can be included and relicensed with the app. You keep the copyright in your contribution and are credited in the history.
 
 ## Feature tests
 

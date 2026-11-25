@@ -9,7 +9,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-pub const USER_AGENT: &str = "LocationSpoofer-Standalone/0.1 (desktop app)";
+pub const USER_AGENT: &str = "Sideport-Standalone/0.1 (desktop app)";
 const OFFNET_MIN_M: f64 = 25.0;
 const OFFNET_CAP_KMH: f64 = 15.0;
 const RESTRICTED_CAP_KMH: f64 = 20.0;

@@ -122,7 +122,7 @@ def write_gpx(
     start = start or datetime.now(timezone.utc).replace(microsecond=0)
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<gpx version="1.1" creator="iPhone Location Spoofer" xmlns="http://www.topografix.com/GPX/1/1">',
+        '<gpx version="1.1" creator="Sideport" xmlns="http://www.topografix.com/GPX/1/1">',
         f"  <metadata><name>{escape(name)}</name><time>{_fmt_time(start)}</time></metadata>",
     ]
     for lat, lon, wname in waypoints:
