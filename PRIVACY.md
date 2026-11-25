@@ -10,8 +10,8 @@ This policy covers both editions of Sideport, formerly called Location Spoofer: 
 * Everything you create — favourites, saved routes, settings, an optional Google API key — is stored **only on your computer**.
 * To show maps, find places and calculate routes, the app talks **directly from your computer to third-party online services** listed below. Those services receive the information needed to answer each request (for example map coordinates or a search term) and your IP address, under their own privacy policies.
 * The app talks to your iPhone **only over the USB cable or your local network**; nothing about the phone is sent to the internet by the app.
-* **Screen mirroring** (the picture, the sound and your clicks and key presses) travels only between the phone and your computer. The app does not upload it, analyse it or keep a copy. Only screenshots and recordings that you save are written to disk, where you choose.
-* The **local API for other programs** works only while the app is open, only for programs on your computer (not websites or other computers). Programs that use it can receive the phone's screen and control the phone; what they do with it is covered by their own privacy policies.
+* **Screen mirroring** (the picture, the sound and your clicks and key presses) travels only between the phone and your computer. The app does not upload it, analyse it or keep a copy. Only screenshots and recordings that you save are written to disk, in your Downloads folder or the folder you choose in *Settings › Screen*.
+* The **local API for other programs** works only while the app is open, only for programs on your computer (not websites or other computers). Programs that use it can receive the phone's screen and control the phone; what they do with it is covered by their own privacy policies. This includes the **AI agent connector** that comes with the app: if you connect an AI assistant (for example Claude Code or Cursor) to it, the screenshots it takes, what is visible on them and what you ask it are sent to that AI service, under its own privacy policy.
 
 ## What is stored on your computer
 

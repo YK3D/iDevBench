@@ -32,7 +32,8 @@ log = logging.getLogger(__name__)
 # name -> (HID usage page, usage, hold in seconds). Siri needs a long press.
 BUTTONS = {
     "home": (0x0C, 0x40, 0.05),
-    "lock": (0x0C, 0x30, 0.05),
+    # shortcut: lock uses the side button's usage with a longer press; unconfirmed on a real iPhone, change the usage if it still does nothing.
+    "lock": (0x0C, 0x30, 0.25),
     "volume-up": (0x0C, 0xE9, 0.05),
     "volume-down": (0x0C, 0xEA, 0.05),
     "mute": (0x0C, 0xE2, 0.05),
@@ -58,11 +59,11 @@ def parse_input(v: Any) -> tuple:
 
     ``{"t":"touch","phase":"down|move|up","x":..,"y":..}``, ``{"t":"tap","x":..,"y":..}``,
     ``{"t":"swipe","x1":..,"y1":..,"x2":..,"y2":..,"ms":300}``, ``{"t":"button","name":"home"}``,
-    ``{"t":"key","usage":40,"down":true}``, ``{"t":"text","text":"hi"}``, ``{"t":"keyframe"}``.
+    ``{"t":"key","usage":40,"down":true}``, ``{"t":"text","text":"hi"}``, ``{"t":"keyframe"}``, ``{"t":"refresh"}``.
     Raises ValueError with a message for the user.
     """
     if not isinstance(v, dict):
-        raise ValueError("'t' must be touch, tap, swipe, button, key, text or keyframe")
+        raise ValueError(_KINDS)
     t = v.get("t")
     if t == "touch":
         if v.get("phase") not in ("down", "move", "up"):
@@ -93,9 +94,12 @@ def parse_input(v: Any) -> tuple:
         if len(text) > 2000:
             raise ValueError("Type at most 2000 characters at a time")
         return ("text", text)
-    if t == "keyframe":
-        return ("keyframe",)
-    raise ValueError("'t' must be touch, tap, swipe, button, key, text or keyframe")
+    if t in ("keyframe", "refresh"):
+        return (t,)
+    raise ValueError(_KINDS)
+
+
+_KINDS = "'t' must be touch, tap, swipe, button, key, text, keyframe or refresh"
 
 
 _SHIFTED_DIGITS = "!@#$%^&*()"
@@ -390,7 +394,8 @@ def _stream_config(answer: Any) -> tuple[int, int, int]:
 
 
 def _status(**kw) -> dict:
-    s = {"state": "off", "error": None, "simulated": False, "width": None, "height": None, "audio": False, "note": None}
+    s = {"state": "off", "error": None, "simulated": False, "width": None, "height": None, "audio": False, "note": None,
+         "rotation": 0}
     s.update(kw)
     return s
 
@@ -490,27 +495,43 @@ class Screen:
 
     async def input(self, i: tuple) -> None:
         live = self._require()
-        if live is None:  # simulator
+        if self.status["simulated"]:
             if len(self.sim_inputs) < 1000:
                 self.sim_inputs.append(i)
             return
+        if live is None:
+            raise ScreenError("Reconnecting to the iPhone's screen. Try again in a moment.")
         await live.apply(i)
 
     async def screenshot(self) -> bytes:
         live = self._require()
-        if live is None:
+        if self.status["simulated"]:
             raise ScreenError("The simulator has no screen to capture.")
+        if live is None:
+            raise ScreenError("Reconnecting to the iPhone's screen. Try again in a moment.")
         return await live.screenshot()
 
     async def _run(self, session: int, udid: Optional[str], audio: bool, ready: asyncio.Future) -> None:
         error = None
+        restarts, last_restart = 0, 0.0
         try:
-            async with AsyncExitStack() as stack:
-                live = _Live(self, session)
-                await live.open(stack, udid, audio)
-                self._live = live
-                ready.set_result(None)
-                await live.loop()
+            while True:
+                try:
+                    async with AsyncExitStack() as stack:
+                        live = _Live(self, session)
+                        await live.open(stack, udid, audio)
+                        self._live = live
+                        if not ready.done():
+                            ready.set_result(None)
+                        await live.loop()
+                except _Restart as r:
+                    self._live = None
+                    if r.auto:
+                        restarts = restarts + 1 if time.monotonic() - last_restart < 60 else 1
+                        last_restart = time.monotonic()
+                        if restarts > MAX_RESTARTS:
+                            raise ScreenError("The iPhone stopped sending its screen. Unlock it, then start mirroring again.") from None
+                    self._set(session, note="Reconnecting to the iPhone's screen…")
         except asyncio.CancelledError:
             raise
         except ScreenError as e:
@@ -527,6 +548,31 @@ class Screen:
 
 
 MEDIA_IN_USE_CODE = 9022
+# Unanswered keyframe requests (while the picture is broken) before the stream is restarted;
+# iOS 27's encoder sometimes stops answering them, and a fresh stream always opens with one.
+MAX_KEY_REQUESTS = 3
+SILENCE = 6.0  # seconds without any datagram (the phone's RTCP reports come every second)
+MAX_RESTARTS = 3  # automatic restarts in a row (less than a minute apart) before giving up
+
+
+class _Restart(Exception):
+    """Start the stream again: ``auto`` when it froze, False when the user asked (Refresh)."""
+
+    def __init__(self, auto: bool) -> None:
+        super().__init__("restart")
+        self.auto = auto
+
+
+def display_rotation(info: Any) -> int:
+    """Clockwise degrees (0, 90, 180, 270) that turn the streamed picture upright, from a
+    ``getdisplayinfo`` answer: the built-in display in use, else the primary one."""
+    displays = info.get("displays", []) if isinstance(info, dict) else []
+    built_in = [d for d in displays if not d.get("external")]
+    chosen = (next((d for d in built_in if d.get("active")), None)
+              or next((d for d in built_in if d.get("backlightState", "off") != "off"), None)
+              or next((d for d in displays if d.get("primary")), None)
+              or (displays[0] if displays else {}))
+    return {"rot90": 90, "rot180": 180, "rot270": 270}.get(chosen.get("currentOrientation"), 0)
 
 
 class _Live:
@@ -535,6 +581,12 @@ class _Live:
     def __init__(self, m: Screen, session: int) -> None:
         self.m, self.session = m, session
         self.want_key = True
+        self.refresh = False  # a still screen gets a keyframe now and then; doesn't count towards a restart
+        self.restart_asked = False
+        self.key_requests = 0
+        self.depack = Depacketizer()
+        self.lock = asyncio.Lock()  # one input at a time on the HID services
+        self.info = None
         self.hid = self.indigo = None
         self.held: set[int] = set()
         self.kb_id: Optional[int] = None
@@ -589,6 +641,12 @@ class _Live:
             log.exception("HID services unavailable")
             self.hid = self.indigo = None
             notes.append("The iPhone did not accept touch input, so it can only be watched.")
+        try:  # which way the screen is turned; without it the Rotate button helps
+            from pymobiledevice3.remote.core_device.device_info import DeviceInfoService
+
+            self.info = await stack.enter_async_context(DeviceInfoService(self.rsd))
+        except Exception:  # noqa: BLE001
+            self.info = None
         self.decoder = None
         if audio:
             if sys.platform == "darwin":
@@ -606,7 +664,7 @@ class _Live:
     async def loop(self) -> None:
         self.started = time.monotonic()
         self.v_seq, self.a_seq = _SeqCounter(), _SeqCounter()
-        tasks = [asyncio.create_task(c) for c in (self._video(), self._audio(), self._feedback())]
+        tasks = [asyncio.create_task(c) for c in (self._video(), self._audio(), self._feedback(), self._orientation())]
         try:
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for t in done:
@@ -620,19 +678,20 @@ class _Live:
         return int((time.monotonic() - self.started) * 1e6)
 
     async def _video(self) -> None:
-        depack = Depacketizer()
+        depack = self.depack
         while True:
-            p = _rtp(await self.video.recv(65535))
+            data = await self.video.recv(65535)
+            self.last_dgram = time.monotonic()
+            p = _rtp(data)
             if p is None:
                 continue
             self.last_video = time.monotonic()
             seq, ts, marker, payload = p
             self.v_seq.add(seq)
-            was_waiting = depack.waiting_for_key
             frames = depack.push(seq, ts, marker, payload)
-            if depack.waiting_for_key and not was_waiting:
-                self.want_key = True
             for rtp_ts, key, nals in frames:
+                if key:
+                    self.key_requests = 0
                 if depack.config_changed:
                     c = depack.decoder_config()
                     if c:
@@ -666,15 +725,24 @@ class _Live:
         """Receiver reports every second (the phone stops after ~20 s without them) and
         rate-limited keyframe requests."""
         fir_seq, last_report, last_request = 0, 0.0, 0.0
-        self.last_video = time.monotonic()
+        self.last_video = self.last_dgram = time.monotonic()
         while True:
             await asyncio.sleep(0.1)
             now = time.monotonic()
+            if self.restart_asked:
+                raise _Restart(False)
+            if now - self.last_dgram > SILENCE:
+                raise _Restart(True)
             if now - self.last_video > 4:  # a still screen sends nothing: refresh for new viewers
-                self.want_key, self.last_video = True, now
-            if self.want_key and now - last_request > 0.7 and self.v_phone:
+                self.refresh, self.last_video = True, now
+            broken = self.want_key or self.depack.waiting_for_key
+            if (broken or self.refresh) and now - last_request > 1 and self.v_phone:
+                if broken:
+                    if self.key_requests >= MAX_KEY_REQUESTS:
+                        raise _Restart(True)
+                    self.key_requests += 1
                 await self._rtcp(self.video, self.v_port, _keyframe_request(self.v_ours, self.v_phone, self.v_seq.value or 0, fir_seq))
-                fir_seq, last_request, self.want_key = fir_seq + 1, now, False
+                fir_seq, last_request, self.want_key, self.refresh = fir_seq + 1, now, False, False
             if now - last_report >= 1:
                 last_report = now
                 if self.v_phone:
@@ -682,8 +750,30 @@ class _Live:
                 if self.a_phone:
                     await self._rtcp(self.audio_rx, self.a_port, _rr_sdes(self.a_ours, self.a_phone, self.a_seq.value or 0))
 
+    async def _orientation(self) -> None:
+        while True:
+            await asyncio.sleep(0.5)
+            if self.info is None:
+                continue
+            try:
+                r = display_rotation(await asyncio.wait_for(self.info.get_display_info(), 0.8))
+            except Exception:  # noqa: BLE001 - not supported by this iPhone: stop asking
+                self.info = None
+                continue
+            if r != self.m.status.get("rotation"):
+                self.m._set(self.session, rotation=r)
+
     # ---- input
     async def apply(self, i: tuple) -> None:
+        if i[0] == "keyframe":
+            self.want_key = True
+        elif i[0] == "refresh":
+            self.restart_asked = True
+        else:
+            async with self.lock:
+                await self._apply(i)
+
+    async def _apply(self, i: tuple) -> None:
         from pymobiledevice3.remote.core_device.hid_service import (
             HID_BUTTON_STATE_DOWN,
             HID_BUTTON_STATE_UP,
@@ -692,9 +782,6 @@ class _Live:
         )
 
         kind = i[0]
-        if kind == "keyframe":
-            self.want_key = True
-            return
         if self.hid is None or self.indigo is None:
             raise ScreenError("The iPhone did not accept touch input in this session. Stop and start mirroring again.")
         if kind == "touch":

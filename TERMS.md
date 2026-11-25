@@ -40,6 +40,8 @@ The app cannot hide that a location is simulated: apps can detect it, and other 
 
 While the app is open, programs on your computer can use its local API to do what the app can do: see the device's screen, control the device and change its location. Websites cannot use it, and it cannot be reached from other computers. Only run programs you trust, and close the app when you are not using it. Programs that use the API are not made by YK3D, and their own terms and privacy policies apply to them. See [docs/API.md](docs/API.md).
 
+The app includes a connector that lets AI agents use the API. An agent connected to it sees the screen and acts on the device by itself, and it can make mistakes: watch what it does, don't leave it unattended where a mistake can't be undone (purchases, messages, deleting data), and you remain responsible for what it does on your device. What you and the agent send to an AI service is covered by that service's terms.
+
 ## 5. No warranty
 
 THE APP IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING FITNESS FOR A PARTICULAR PURPOSE, ACCURACY AND NON-INFRINGEMENT. Routes, speeds, travel times and speed limits are estimates and may be wrong. Mirrored pictures and sound can lag, freeze or be incomplete. **Never use the app for navigation or safety-critical purposes.**

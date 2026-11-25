@@ -80,6 +80,8 @@ Both have the same look and features (apart from the differences above), and bot
 | Mirroring: "won't share its screen while an app uses the camera or microphone" | Close Camera, Voice Memos or any app that is recording, then press Start mirroring again |
 | Mirroring: "can't decode the iPhone's video (HEVC)" | Update the graphics driver, or install *HEVC Video Extensions* from the Microsoft Store |
 | Mirroring: the picture stays black | Unlock the iPhone. Some apps hide their content from screen mirroring, for example video streaming apps |
+| Mirroring: the picture freezes | It restarts by itself after a few seconds; press **Refresh** next to the screen to do it at once |
+| Mirroring: the picture is sideways | Press **Rotate** next to the screen |
 | Something else | [Open an issue](https://github.com/YK3D/iPhone-location-spoofer/issues/new) and describe what happened, with the app's version (*Settings › About*) |
 
 </details>
@@ -132,14 +134,15 @@ Both have the same look and features (apart from the differences above), and bot
 </details>
 
 <details>
-<summary><b>Screen mirroring and control (Mirror tab)</b></summary>
+<summary><b>Screen mirroring and control (Screen section)</b></summary>
 
-* **See the iPhone's screen** live in the app, over the USB cable. Needs iOS 27 or newer.
-* **Control it:** click to tap, drag to swipe or scroll, right-click for Home. Buttons for Home, Lock, Volume and Siri.
+* **See the iPhone's screen** live in its own section of the app (switch between *Location* and *Screen* at the top), over the USB cable. Needs iOS 27 or newer. The picture turns with the phone.
+* **Control it:** click to tap, drag to swipe, scroll with the mouse wheel, right-click for Home. Buttons next to the screen for Home, Lock, Volume, Mute and Siri, and for the gestures: app switcher, Control Centre, Notification Centre and Back. A small dot shows where you touch.
 * **Type:** click the screen and type on your keyboard (Ctrl works as the iPhone's ⌘, so Ctrl+C and Ctrl+V copy and paste on the phone), or send a whole line of text.
 * **Sound:** hear what the iPhone plays (standalone app).
-* **Screenshots and recordings:** save a picture, or record the screen with its sound as a video file.
-* **For developers:** other programs on your computer can watch the screen, tap, type and set the location through the [local API](docs/API.md).
+* **Screenshots and recordings:** save a picture, or record the screen with its sound as a video file, to your Downloads folder or a folder you choose in *Settings › Screen*.
+* **Stats** shows the frame rate, data rate and decoding delay; **Refresh** restarts a frozen picture (the app also does this by itself).
+* **For developers:** other programs on your computer can watch the screen, tap, type and set the location through the [local API](docs/API.md), and AI agents (Claude Code, Cursor and others) can use the phone through the included [MCP server and skill](docs/API.md#ai-agents-mcp).
 
 </details>
 

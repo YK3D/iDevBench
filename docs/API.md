@@ -32,16 +32,19 @@ Needs iOS 27 or newer. The phone only accepts touches and keys while mirroring r
 
 | Method and path | Body | What it does |
 |---|---|---|
-| `GET /api/screen` | | Status: `state` (`off`, `starting`, `on`, `error`), `error`, `simulated`, `width`, `height` (screen pixels), `audio`, `note` |
+| `GET /api/screen` | | Status: `state` (`off`, `starting`, `on`, `error`), `error`, `simulated`, `width`, `height` (screen pixels), `audio`, `note`, `rotation` (see below) |
 | `POST /api/screen/start` | `{"driver": "pmd3", "udid": null, "audio": true}` | Start (all fields optional; defaults to the device the app is connected to). Returns the status once the picture is flowing |
 | `POST /api/screen/stop` | `{}` | Stop |
 | `POST /api/screen/input` | one input, see below | Tap, swipe, press a button or type |
 | `GET /api/screen/screenshot` | | A PNG of the screen, taken by the phone |
 | `GET /api/screen/ws` | WebSocket | Live picture, sound and status; send inputs on it too |
+| `POST /api/screen/save?name=<file>` | the file | Saves a screenshot or recording (`.png`, `.mp4`, `.webm`) to the folder chosen in *Settings › Screen* (Downloads by default); answers `{"path": ...}` |
 
 ### Inputs
 
 Coordinates are fractions of the screen as the phone holds it natively (portrait on an iPhone): `0,0` is the top left, `1,1` the bottom right. Multiply by `width`/`height` from the status to work in pixels.
+
+The picture always arrives in that native orientation. When the phone is turned, the status's `rotation` says how many degrees clockwise (0, 90, 180 or 270) to turn the picture to show it upright; turn your coordinates back the same way before sending them.
 
 | Input | Example |
 |---|---|
@@ -52,6 +55,7 @@ Coordinates are fractions of the screen as the phone holds it natively (portrait
 | Type text (US keyboard layout, up to 2000 characters) | `{"t": "text", "text": "Hello"}` |
 | One key down or up ([HID keyboard usage](https://usb.org/sites/default/files/hut1_5.pdf), page 7) | `{"t": "key", "usage": 40, "down": true}` (40 is Return) |
 | Ask for a fresh full frame | `{"t": "keyframe"}` |
+| Restart the picture (if it froze; the app also does this by itself after a few seconds) | `{"t": "refresh"}` |
 
 ```bash
 curl -X POST http://127.0.0.1:8766/api/screen/start -H "Content-Type: application/json" -d '{}'
@@ -99,3 +103,23 @@ with connect("ws://127.0.0.1:8766/api/screen/ws") as ws:
         elif msg[0] == 2:
             print("frame", "key" if msg[1] else "delta", len(msg) - 10, "bytes")
 ```
+
+## AI agents (MCP)
+
+[`agents/sideport_mcp.py`](../agents/sideport_mcp.py) is a [Model Context Protocol](https://modelcontextprotocol.io) server that gives AI agents (Claude Code, Claude Desktop, Cursor and others) tools to use the iPhone through this API: `screenshot`, `tap`, `swipe`, `long_press`, `gesture` (home, app switcher, Control Centre, Notification Centre, back), `press_button`, `type_text`, `press_key`, `set_location`, `clear_location`, `start_screen`, `stop_screen`, `iphone_status`, `list_devices` and `connect_device`. It needs Python 3.9 or newer (nothing to install) and Sideport open.
+
+Claude Code:
+
+```bash
+claude mcp add sideport -- python C:\path\to\sideport_mcp.py
+```
+
+Claude Desktop, Cursor and other apps take the same command in their MCP settings, for example:
+
+```json
+{ "mcpServers": { "sideport": { "command": "python", "args": ["C:\\path\\to\\sideport_mcp.py"] } } }
+```
+
+[`agents/skills/sideport-iphone`](../agents/skills/sideport-iphone/SKILL.md) is a skill that teaches an agent how to work with the phone (look, act, look again; positions as fractions; what not to do on someone's real phone). For Claude Code, copy the folder to `~/.claude/skills/` (or a project's `.claude/skills/`).
+
+The agent sees what the screenshots show, and the AI service it runs on receives them. Keep an eye on what it does: its taps act on the real phone.

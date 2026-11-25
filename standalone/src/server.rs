@@ -164,6 +164,8 @@ pub fn router(app: App) -> Router {
         .route("/api/screen/input", post(screen_input))
         .route("/api/screen/screenshot", get(screen_screenshot))
         .route("/api/screen/ws", get(screen_ws))
+        // Recordings can be long; they come from the app's own page.
+        .route("/api/screen/save", post(screen_save).layer(DefaultBodyLimit::max(2 << 30)))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(axum::middleware::from_fn(local_only))
         .with_state(app)
@@ -234,6 +236,42 @@ async fn screen_screenshot(State(app): State<App>) -> Result<Response, ApiError>
     Ok(([(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, "no-store")], png).into_response())
 }
 
+#[derive(Deserialize)]
+struct SaveQ {
+    name: String,
+}
+
+/// File names the Mirror tab saves: letters, digits, `-`, `_`, `.`; a picture or video.
+fn capture_name_ok(name: &str) -> bool {
+    let ext_ok = [".png", ".mp4", ".webm"].iter().any(|e| name.ends_with(e));
+    ext_ok && name.len() <= 120 && !name.starts_with('.') && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+}
+
+/// Saves a screenshot or recording from the Mirror tab to the folder chosen in Settings
+/// (the Downloads folder by default) and returns where it went.
+async fn screen_save(State(app): State<App>, Query(q): Query<SaveQ>, body: axum::body::Bytes) -> R {
+    if !capture_name_ok(&q.name) {
+        return Err(bad("Unexpected file name."));
+    }
+    let chosen = app.store.load()["settings"]["capture_folder"].as_str().map(str::trim).unwrap_or("").to_string();
+    let dir = if chosen.is_empty() {
+        dirs::download_dir().or_else(dirs::home_dir).ok_or(bad("Choose a folder for screenshots and recordings in Settings."))?
+    } else {
+        std::path::PathBuf::from(chosen)
+    };
+    tokio::fs::create_dir_all(&dir).await.map_err(|e| bad(format!("Can't use the folder {}: {e}", dir.display())))?;
+    let (stem, ext) = q.name.rsplit_once('.').unwrap_or((&q.name, ""));
+    let mut path = dir.join(&q.name);
+    for n in 1.. {
+        if !path.exists() {
+            break;
+        }
+        path = dir.join(format!("{stem}-{n}.{ext}"));
+    }
+    tokio::fs::write(&path, &body).await.map_err(|e| bad(format!("Can't save to {}: {e}", dir.display())))?;
+    Ok(Json(json!({"path": path.display().to_string()})))
+}
+
 /// Live picture, sound and status for the Mirror tab or another program; input goes the other way.
 async fn screen_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgrade) -> Response {
     use axum::extract::ws::Message;
@@ -248,10 +286,27 @@ async fn screen_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgra
             let _ = socket.send(Message::Binary(c.to_vec().into())).await;
         }
         let _ = app.screen.input(crate::screen::Input::KeyFrame).await;
+        // Inputs run one after another on their own task, so a long one (Siri, typing) doesn't
+        // hold up the picture; their errors come back here.
+        let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel::<crate::screen::Input>();
+        let (err_tx, mut err_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let worker = {
+            let app = app.clone();
+            tokio::spawn(async move {
+                while let Some(i) = input_rx.recv().await {
+                    if let Err(e) = app.screen.input(i).await {
+                        let _ = err_tx.send(e);
+                    }
+                }
+            })
+        };
         // Frames only make sense from a keyframe on: skip until one arrives (also after falling behind).
         let mut need_key = true;
         loop {
             tokio::select! {
+                Some(e) = err_rx.recv() => {
+                    if socket.send(Message::Text(json!({"type": "error", "detail": e}).to_string().into())).await.is_err() { break; }
+                }
                 out = rx.recv() => {
                     let msg = match out {
                         Ok(Out::Text(t)) => Message::Text(t.as_str().into()),
@@ -273,12 +328,9 @@ async fn screen_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgra
                 }
                 msg = socket.recv() => match msg {
                     Some(Ok(Message::Text(t))) => {
-                        let reply = match serde_json::from_str::<Value>(&t).map_err(|e| e.to_string()).and_then(|v| crate::screen::parse_input(&v)) {
-                            Ok(i) => app.screen.input(i).await.err(),
-                            Err(e) => Some(e),
-                        };
-                        if let Some(e) = reply {
-                            let _ = socket.send(Message::Text(json!({"type": "error", "detail": e}).to_string().into())).await;
+                        match serde_json::from_str::<Value>(&t).map_err(|e| e.to_string()).and_then(|v| crate::screen::parse_input(&v)) {
+                            Ok(i) => { let _ = input_tx.send(i); }
+                            Err(e) => { let _ = socket.send(Message::Text(json!({"type": "error", "detail": e}).to_string().into())).await; }
                         }
                     }
                     Some(Ok(_)) => {}
@@ -286,6 +338,7 @@ async fn screen_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgra
                 }
             }
         }
+        worker.abort();
     })
 }
 
@@ -1446,5 +1499,20 @@ mod tests {
         assert_eq!(screen_input(State(a.clone()), Json(json!({"t": "tap", "x": 2, "y": 0}))).await.unwrap_err().0, 400);
         assert_eq!(screen_screenshot(State(a.clone())).await.unwrap_err().0, 409);
         assert_eq!(screen_stop(State(a.clone())).await.unwrap_or_else(|e| panic!("{}", e.1)).0["state"], "off");
+    }
+
+    #[tokio::test]
+    async fn screen_captures_go_to_the_chosen_folder() {
+        let a = app();
+        let dir = std::env::temp_dir().join(format!("sideport-captures-{}", rand::random::<u64>()));
+        a.store.save(&json!({"settings": {"capture_folder": dir.to_string_lossy()}})).unwrap();
+        let save = |name: &str| screen_save(State(a.clone()), Query(SaveQ { name: name.into() }), axum::body::Bytes::from_static(b"png"));
+        let first = save("shot.png").await.unwrap_or_else(|e| panic!("{}", e.1)).0;
+        let second = save("shot.png").await.unwrap_or_else(|e| panic!("{}", e.1)).0;
+        assert_eq!(std::fs::read(first["path"].as_str().unwrap()).unwrap(), b"png");
+        assert!(second["path"].as_str().unwrap().ends_with("shot-1.png"));
+        for bad_name in ["../x.png", "x.exe", ".png", "a/b.png"] {
+            assert_eq!(save(bad_name).await.unwrap_err().0, 400, "{bad_name}");
+        }
     }
 }

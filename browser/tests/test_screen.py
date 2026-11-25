@@ -98,6 +98,7 @@ def test_inputs_and_keys():
     assert mi.parse_input({"t": "touch", "phase": "down", "x": 0.5, "y": 1}) == ("touch", "down", 32768, 65535)
     assert mi.parse_input({"t": "swipe", "x1": 0, "y1": 0, "x2": 1, "y2": 1})[-1] == 300
     assert mi.parse_input({"t": "key", "usage": 40, "down": False}) == ("key", 40, False)
+    assert mi.parse_input({"t": "refresh"}) == ("refresh",)
     for bad in ({"t": "tap", "x": 1.5, "y": 0}, {"t": "tap", "x": "0.2", "y": 0}, {"t": "touch", "phase": "hover", "x": 0, "y": 0},
                 {"t": "button", "name": "power"}, {"t": "key", "usage": 1, "down": True}, {"t": "fly"}, []):
         with pytest.raises(ValueError):
@@ -127,6 +128,14 @@ def test_rtcp_and_rtp_helpers():
     assert s.value == 0x10002
     answer = {"connection": {"streamConfig": {"SourcePort": 50001, "LocalSSRC": 7, "RemoteSSRC": 9}}}
     assert mi._stream_config(answer) == (50001, 9, 7) and mi._stream_config(None) == (0, 0, 0)
+
+
+def test_reads_the_screen_rotation():
+    info = {"displays": [{"external": True, "currentOrientation": "rot180"}, {"primary": True, "currentOrientation": "rot90"},
+                         {"active": True, "currentOrientation": "rot270"}]}
+    assert mi.display_rotation(info) == 270
+    assert mi.display_rotation({"displays": [{"currentOrientation": "rot90"}]}) == 90
+    assert mi.display_rotation(True) == 0
 
 
 @pytest.fixture()
@@ -166,3 +175,37 @@ def test_websocket_refuses_other_websites(client):
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/api/screen/ws", headers={"host": "127.0.0.1:8765", "origin": "https://evil.example"}) as ws:
             ws.receive_text()
+
+
+def test_screen_captures_go_to_the_chosen_folder(client, tmp_path):
+    folder = tmp_path / "captures"
+    client.put("/api/store", json={"settings": {"capture_folder": str(folder)}})
+    first = client.post("/api/screen/save?name=shot.png", content=b"png").json()["path"]
+    second = client.post("/api/screen/save?name=shot.png", content=b"png").json()["path"]
+    assert open(first, "rb").read() == b"png" and second.endswith("shot-1.png")
+    for bad in ("../x.png", "x.exe", ".png", "a/b.png"):
+        assert client.post("/api/screen/save", params={"name": bad}, content=b"x").status_code == 400, bad
+
+
+def test_unanswered_keyframe_requests_restart_the_stream(monkeypatch):
+    import asyncio
+    import itertools
+    import types
+
+    clock = itertools.count(0, 0.6)  # every look at the clock is 0.6 s later
+    monkeypatch.setattr(mi, "time", types.SimpleNamespace(monotonic=lambda: next(clock)))
+    live = mi._Live(mi.Screen(), 1)
+    live.v_phone, live.v_ours, live.v_port, live.a_phone = 2, 1, 5, 0
+    live.v_seq, live.a_seq = mi._SeqCounter(), mi._SeqCounter()
+    live.video = live.audio_rx = None
+    requests = []
+
+    async def rtcp(_transport, _port, packet):
+        live.last_dgram = mi.time.monotonic()  # the phone keeps sending, just no keyframe
+        if len(packet) > 44:
+            requests.append(packet)
+
+    live._rtcp = rtcp
+    with pytest.raises(mi._Restart) as e:
+        asyncio.run(asyncio.wait_for(live._feedback(), 10))
+    assert e.value.auto and len(requests) == mi.MAX_KEY_REQUESTS

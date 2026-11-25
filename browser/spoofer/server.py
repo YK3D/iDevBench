@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import uuid
 from collections import OrderedDict
 from contextlib import asynccontextmanager
@@ -986,6 +987,34 @@ async def screen_input(body: dict):
 @app.get("/api/screen/screenshot")
 async def screen_screenshot():
     return Response(await S().screen.screenshot(), media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+_CAPTURE_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,119}")
+
+
+@app.post("/api/screen/save")
+async def screen_save(name: str, request: Request):
+    """Saves a screenshot or recording from the Mirror tab to the folder chosen in Settings
+    (the Downloads folder by default) and returns where it went."""
+    if not _CAPTURE_NAME.fullmatch(name) or not name.endswith((".png", ".mp4", ".webm")):
+        raise HTTPException(400, "Unexpected file name.")
+    chosen = str((S().store.load().get("settings") or {}).get("capture_folder") or "").strip()
+    folder = Path(chosen).expanduser() if chosen else Path.home() / "Downloads"
+    body = await request.body()
+
+    def write() -> str:
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            path, stem, ext = folder / name, *name.rsplit(".", 1)
+            n = 1
+            while path.exists():
+                path, n = folder / f"{stem}-{n}.{ext}", n + 1
+            path.write_bytes(body)
+        except OSError as e:
+            raise HTTPException(400, f"Can't save to {folder}: {e.strerror or e}") from e
+        return str(path)
+
+    return {"path": await asyncio.to_thread(write)}
 
 
 @app.websocket("/api/screen/ws")

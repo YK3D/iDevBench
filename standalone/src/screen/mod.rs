@@ -25,7 +25,8 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 /// Hardware buttons: (name, HID usage page, usage, hold in ms). Siri needs a long press.
 pub const BUTTONS: [(&str, u64, u64, u64); 6] = [
     ("home", 0x0C, 0x40, 50),
-    ("lock", 0x0C, 0x30, 50),
+    // shortcut: lock uses the side button's usage with a longer press; unconfirmed on a real iPhone, change the usage if it still does nothing.
+    ("lock", 0x0C, 0x30, 250),
     ("volume-up", 0x0C, 0xE9, 50),
     ("volume-down", 0x0C, 0xEA, 50),
     ("mute", 0x0C, 0xE2, 50),
@@ -44,6 +45,8 @@ pub enum Input {
     Text(String),
     /// Ask the phone for a fresh full frame (a new viewer, or a decoder error).
     KeyFrame,
+    /// Restart the stream (a frozen picture).
+    Refresh,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -65,7 +68,7 @@ fn coord(v: &Value, k: &str) -> Result<u16, String> {
 ///
 /// `{"t":"touch","phase":"down|move|up","x":0.5,"y":0.5}`, `{"t":"tap","x":..,"y":..}`,
 /// `{"t":"swipe","x1":..,"y1":..,"x2":..,"y2":..,"ms":300}`, `{"t":"button","name":"home"}`,
-/// `{"t":"key","usage":40,"down":true}`, `{"t":"text","text":"hello"}`, `{"t":"keyframe"}`.
+/// `{"t":"key","usage":40,"down":true}`, `{"t":"text","text":"hello"}`, `{"t":"keyframe"}`, `{"t":"refresh"}`.
 pub fn parse_input(v: &Value) -> Result<Input, String> {
     let t = v.get("t").and_then(Value::as_str).unwrap_or("");
     Ok(match t {
@@ -107,7 +110,8 @@ pub fn parse_input(v: &Value) -> Result<Input, String> {
             Input::Text(text.into())
         }
         "keyframe" => Input::KeyFrame,
-        _ => return Err("'t' must be touch, tap, swipe, button, key, text or keyframe".into()),
+        "refresh" => Input::Refresh,
+        _ => return Err("'t' must be touch, tap, swipe, button, key, text, keyframe or refresh".into()),
     })
 }
 
@@ -146,11 +150,13 @@ pub struct Status {
     pub audio: bool,
     /// Why there is no sound, or no touch control, when there isn't.
     pub note: Option<String>,
+    /// Clockwise degrees (0, 90, 180, 270) that turn the picture upright: the phone is turned.
+    pub rotation: u16,
 }
 
 impl Default for Status {
     fn default() -> Self {
-        Self { state: "off", error: None, simulated: false, width: None, height: None, audio: false, note: None }
+        Self { state: "off", error: None, simulated: false, width: None, height: None, audio: false, note: None, rotation: 0 }
     }
 }
 
@@ -250,7 +256,8 @@ impl Screen {
             .spawn(move || {
                 let rt = tokio::runtime::Builder::new_current_thread().enable_all().build();
                 match rt {
-                    Ok(rt) => rt.block_on(session::run(me, session, udid, audio, rx, ready_tx)),
+                    // A LocalSet lets the session run its (non-Send) input on a task of its own.
+                    Ok(rt) => tokio::task::LocalSet::new().block_on(&rt, session::run(me, session, udid, audio, rx, ready_tx)),
                     Err(e) => me.ended(session, Some(format!("Could not start the mirroring thread: {e}"))),
                 }
             })
@@ -415,6 +422,7 @@ mod tests {
         );
         assert_eq!(parse_input(&json!({"t": "button", "name": "siri"})).unwrap(), Input::Button("siri", 0x0C, 0xCF, 1000));
         assert_eq!(parse_input(&json!({"t": "key", "usage": 40, "down": false})).unwrap(), Input::Key { usage: 40, down: false });
+        assert_eq!(parse_input(&json!({"t": "refresh"})).unwrap(), Input::Refresh);
         assert!(matches!(parse_input(&json!({"t": "swipe", "x1": 0, "y1": 0, "x2": 1, "y2": 1})).unwrap(), Input::Swipe { ms: 300, .. }));
         for bad in [
             json!({"t": "tap", "x": 1.5, "y": 0}),

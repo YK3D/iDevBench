@@ -7,13 +7,13 @@ use crate::device::idev;
 use idevice::{
     core_device::{
         build_keyframe_request, build_liveness, build_screen_audio_offer, build_screen_video_offer, build_start_audio_parameters,
-        build_start_video_parameters, is_rtcp, ButtonState, CallInfoBlob, DisplayServiceClient, IndigoHidClient, ReportBlock, RtpPacket,
-        UniversalHidServiceClient, TOUCHSCREEN_STATE_CONTACT, TOUCHSCREEN_STATE_RELEASE,
+        build_start_video_parameters, is_rtcp, ButtonState, CallInfoBlob, CoreDeviceServiceClient, DisplayServiceClient, IndigoHidClient,
+        ReportBlock, RtpPacket, UniversalHidServiceClient, TOUCHSCREEN_STATE_CONTACT, TOUCHSCREEN_STATE_RELEASE,
     },
     core_device_proxy::CoreDeviceProxy,
     dvt::{remote_server::RemoteServerClient, screenshot::ScreenshotClient},
     lockdown::LockdownClient,
-    provider::IdeviceProvider,
+    provider::{IdeviceProvider, RsdProvider},
     rsd::RsdHandshake,
     IdeviceService, ReadWrite, RsdService,
 };
@@ -29,6 +29,21 @@ const MEDIA_IN_USE: &str = "9022";
 type Hid = UniversalHidServiceClient<Box<dyn ReadWrite>>;
 type Indigo = IndigoHidClient<Box<dyn ReadWrite>>;
 
+/// Unanswered keyframe requests (while the picture is broken) before the stream is restarted;
+/// iOS 27's encoder sometimes stops answering them, and a fresh stream always opens with one.
+const MAX_KEY_REQUESTS: u32 = 3;
+/// No datagram at all (the phone's RTCP reports come every second) means the stream died.
+const SILENCE: Duration = Duration::from_secs(6);
+/// Automatic restarts in a row (less than a minute apart) before giving up.
+const MAX_RESTARTS: u32 = 3;
+
+/// How a stream ended without an error.
+enum Ended {
+    Stopped,
+    /// Start it again: `auto` when the stream froze, false when the user asked (Refresh).
+    Restart { auto: bool },
+}
+
 pub(super) async fn run(
     m: Arc<Screen>,
     session: u64,
@@ -38,7 +53,24 @@ pub(super) async fn run(
     ready: oneshot::Sender<Result<(), String>>,
 ) {
     let mut ready = Some(ready);
-    let result = stream(&m, session, udid, audio_on, rx, &mut ready).await;
+    let mut rx = rx;
+    let (mut restarts, mut last_restart) = (0, Instant::now());
+    let result = loop {
+        match stream(&m, session, udid.clone(), audio_on, &mut rx, &mut ready).await {
+            Ok(Ended::Restart { auto }) => {
+                if auto {
+                    restarts = if last_restart.elapsed() < Duration::from_secs(60) { restarts + 1 } else { 1 };
+                    last_restart = Instant::now();
+                    if restarts > MAX_RESTARTS {
+                        break Err("The iPhone stopped sending its screen. Unlock it, then start mirroring again.".to_string());
+                    }
+                }
+                m.set(session, |s| s.note = Some("Reconnecting to the iPhone's screen…".into()));
+            }
+            Ok(Ended::Stopped) => break Ok(()),
+            Err(e) => break Err(e),
+        }
+    };
     if let Some(r) = ready.take() {
         let _ = r.send(Err(result.clone().err().unwrap_or_else(|| "Screen mirroring stopped.".into())));
     }
@@ -83,9 +115,9 @@ async fn stream(
     session: u64,
     udid: Option<String>,
     audio_on: bool,
-    mut rx: mpsc::UnboundedReceiver<Cmd>,
+    rx: &mut mpsc::UnboundedReceiver<Cmd>,
     ready: &mut Option<oneshot::Sender<Result<(), String>>>,
-) -> Result<(), String> {
+) -> Result<Ended, String> {
     let fr = |e: idevice::IdeviceError| idev::friendly(&e);
     let (provider, _) = idev::find_device(udid.as_deref(), crate::device::Via::Auto).await?;
     idev::ensure_paired(&provider).await?;
@@ -139,8 +171,16 @@ async fn stream(
 
     // Touch and buttons are refused until the phone has matched them to the new stream.
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let mut hid: Option<Hid> = UniversalHidServiceClient::connect_rsd(&mut adapter, &mut hs).await.ok();
-    let mut indigo: Option<Indigo> = IndigoHidClient::connect_rsd(&mut adapter, &mut hs).await.ok();
+    let hid: Option<Hid> = UniversalHidServiceClient::connect_rsd(&mut adapter, &mut hs).await.ok();
+    let indigo: Option<Indigo> = IndigoHidClient::connect_rsd(&mut adapter, &mut hs).await.ok();
+    // Which way the screen is turned; without it the picture stays upright and the Rotate button helps.
+    let mut info = match hs.services.get("com.apple.coredevice.deviceinfo").map(|s| s.port) {
+        Some(port) => match adapter.connect_to_service_port(port).await {
+            Ok(stream) => CoreDeviceServiceClient::new(stream).await.ok(),
+            Err(_) => None,
+        },
+        None => None,
+    };
     let mut decoder = if audio_on { audio::Decoder::new() } else { None };
     let mut note = Vec::new();
     if hid.is_none() || indigo.is_none() {
@@ -157,37 +197,60 @@ async fn stream(
     if let Some(r) = ready.take() {
         let _ = r.send(Ok(()));
     }
+    // Input runs on its own task, in order: a held button (Siri: 1 s), a swipe or typing must
+    // not stop the picture from being received meanwhile.
+    let (input_tx, mut input_rx) = mpsc::unbounded_channel::<(Input, oneshot::Sender<Result<(), String>>)>();
+    let input_task = tokio::task::spawn_local(async move {
+        let (mut hid, mut indigo) = (hid, indigo);
+        while let Some((i, r)) = input_rx.recv().await {
+            let _ = r.send(apply(i, hid.as_mut(), indigo.as_mut()).await);
+        }
+    });
 
     let started = Instant::now();
     let mut depack = hevc::Depacketizer::new();
     let (mut v_seq, mut a_seq) = (SeqCounter::default(), SeqCounter::default());
     let mut last_keyframe_request = Instant::now() - Duration::from_secs(5);
     let mut fir_seq = 0u8;
-    let mut want_key = true;
+    // `want_key`: someone needs a keyframe (a viewer, or lost packets); `refresh`: a still screen
+    // gets one now and then for new viewers. Only the first kind counts towards a restart.
+    let (mut want_key, mut refresh, mut key_requests) = (true, false, 0u32);
     let mut tick = tokio::time::interval(Duration::from_secs(1));
-    let mut last_video = Instant::now();
+    let mut orient_tick = tokio::time::interval(Duration::from_millis(500));
+    let (mut last_video, mut last_dgram) = (Instant::now(), Instant::now());
+    let mut rotation = 0u16;
 
     let result = loop {
-        if want_key && last_keyframe_request.elapsed() > Duration::from_millis(700) && v_phone != 0 {
+        let broken = want_key || depack.waiting_for_key;
+        if (broken || refresh) && last_keyframe_request.elapsed() > Duration::from_secs(1) && v_phone != 0 {
+            if broken {
+                if key_requests >= MAX_KEY_REQUESTS {
+                    break Ok(Ended::Restart { auto: true });
+                }
+                key_requests += 1;
+            }
             let block = ReportBlock { source_ssrc: v_phone, highest_seq: v_seq.0.unwrap_or(0), ..Default::default() };
             let _ = video_udp.send_to(v_port, build_keyframe_request(v_ours, "", v_phone, &[block], fir_seq)).await;
             fir_seq = fir_seq.wrapping_add(1);
             last_keyframe_request = Instant::now();
-            want_key = false;
+            (want_key, refresh) = (false, false);
+        }
+        if last_dgram.elapsed() > SILENCE {
+            break Ok(Ended::Restart { auto: true });
         }
         tokio::select! {
             dg = video_udp.recv() => {
                 let Ok(dg) = dg else { break Err("The connection to the iPhone was lost.".to_string()) };
+                last_dgram = Instant::now();
                 if is_rtcp(&dg.data) { continue; }
                 let Some(p) = RtpPacket::parse(&dg.data) else { continue };
                 last_video = Instant::now();
                 v_seq.add(p.sequence_number);
-                let was_waiting = depack.waiting_for_key;
                 let frames = depack.push(p.sequence_number, p.timestamp, p.marker, p.payload);
-                if depack.waiting_for_key && !was_waiting {
-                    want_key = true; // a packet was lost
-                }
                 for au in frames {
+                    if au.key {
+                        key_requests = 0;
+                    }
                     if depack.config_changed {
                         if let Some(c) = depack.decoder_config() {
                             m.set(session, |s| { s.width = Some(c.width); s.height = Some(c.height); });
@@ -219,16 +282,35 @@ async fn stream(
                     let _ = audio_udp.send_to(a_port, build_liveness(a_ours, "", &[b])).await;
                 }
                 if last_video.elapsed() > Duration::from_secs(4) {
-                    want_key = true; // a still screen sends nothing; ask again so new viewers get a picture
+                    refresh = true; // a still screen sends nothing; ask again so new viewers get a picture
                     last_video = Instant::now();
                 }
             }
+            _ = orient_tick.tick(), if info.is_some() => {
+                let answer = match info.as_mut() {
+                    Some(c) => tokio::time::timeout(Duration::from_millis(800), c.invoke("com.apple.coredevice.feature.getdisplayinfo", None))
+                        .await
+                        .ok()
+                        .and_then(Result::ok),
+                    None => None,
+                };
+                match answer {
+                    Some(v) => {
+                        let r = display_rotation(&v);
+                        if r != rotation {
+                            rotation = r;
+                            m.set(session, |s| s.rotation = r);
+                        }
+                    }
+                    None => info = None, // not supported by this iPhone: stop asking
+                }
+            }
             cmd = rx.recv() => match cmd {
-                None => break Ok(()),
+                None => break Ok(Ended::Stopped),
                 Some(Cmd::Input(Input::KeyFrame, r)) => { want_key = true; let _ = r.send(Ok(())); }
+                Some(Cmd::Input(Input::Refresh, r)) => { let _ = r.send(Ok(())); break Ok(Ended::Restart { auto: false }); }
                 Some(Cmd::Input(i, r)) => {
-                    let res = apply(i, hid.as_mut(), indigo.as_mut()).await;
-                    let _ = r.send(res);
+                    let _ = input_tx.send((i, r));
                 }
                 Some(Cmd::Screenshot(r)) => {
                     let _ = r.send(screenshot(&mut adapter, &mut hs).await);
@@ -236,6 +318,7 @@ async fn stream(
             }
         }
     };
+    input_task.abort();
     let _ = display.stop_media_stream().await;
     result
 }
@@ -284,9 +367,31 @@ async fn apply(i: Input, hid: Option<&mut Hid>, indigo: Option<&mut Indigo>) -> 
             }
             Ok(())
         }
-        Input::KeyFrame => Ok(()),
+        Input::KeyFrame | Input::Refresh => Ok(()),
     };
     r.map_err(|e| idev::friendly(&e))
+}
+
+/// Clockwise degrees (0, 90, 180, 270) that turn the streamed picture upright, from a
+/// `getdisplayinfo` answer: the built-in display in use, else the primary one.
+fn display_rotation(info: &plist::Value) -> u16 {
+    let displays = info.as_dictionary().and_then(|d| d.get("displays")).and_then(|v| v.as_array()).map(Vec::as_slice).unwrap_or(&[]);
+    let get = |d: &plist::Value, k: &str| d.as_dictionary().and_then(|d| d.get(k)).cloned();
+    let flag = |d: &plist::Value, k: &str| get(d, k).and_then(|v| v.as_boolean()).unwrap_or(false);
+    let built_in: Vec<&plist::Value> = displays.iter().filter(|d| !flag(d, "external")).collect();
+    let chosen = built_in
+        .iter()
+        .find(|d| flag(d, "active"))
+        .or_else(|| built_in.iter().find(|d| get(d, "backlightState").and_then(|v| v.as_string().map(String::from)).is_some_and(|b| b != "off")))
+        .copied()
+        .or_else(|| displays.iter().find(|d| flag(d, "primary")))
+        .or_else(|| displays.first());
+    match chosen.and_then(|d| get(d, "currentOrientation")).and_then(|v| v.as_string().map(String::from)).as_deref() {
+        Some("rot90") => 90,
+        Some("rot180") => 180,
+        Some("rot270") => 270,
+        _ => 0,
+    }
 }
 
 async fn screenshot(adapter: &mut idevice::tcp::handle::AdapterHandle, hs: &mut RsdHandshake) -> Result<Vec<u8>, String> {
@@ -308,6 +413,24 @@ mod tests {
             s.add(seq);
         }
         assert_eq!(s.0, Some(0x1_0002));
+    }
+
+    #[test]
+    fn reads_the_screen_rotation() {
+        let d = |pairs: &[(&str, plist::Value)]| plist::Value::Dictionary(pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect());
+        let s = |v: &str| plist::Value::String(v.into());
+        let info = d(&[(
+            "displays",
+            plist::Value::Array(vec![
+                d(&[("external", true.into()), ("currentOrientation", s("rot180"))]),
+                d(&[("primary", true.into()), ("currentOrientation", s("rot90"))]),
+                d(&[("active", true.into()), ("currentOrientation", s("rot270"))]),
+            ]),
+        )]);
+        assert_eq!(display_rotation(&info), 270);
+        let single = d(&[("displays", plist::Value::Array(vec![d(&[("currentOrientation", s("rot90"))])]))]);
+        assert_eq!(display_rotation(&single), 90);
+        assert_eq!(display_rotation(&plist::Value::Boolean(true)), 0);
     }
 
     #[test]
