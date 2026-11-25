@@ -1,0 +1,930 @@
+{
+ "instructions": "Controls a real iPhone through the iDevBench app: its GPS location (teleport, routes, tracks, joystick) and, with iOS 27+, its screen. Call the guide tool first: it explains how to work with the phone. For the screen: start_mirroring once, then repeat screenshot, one action, screenshot. Positions are fractions of the screenshot. Don't buy, send, post or delete anything unless the user asked for exactly that. Enter the passcode only if the user asks you to and gives it to you; never store or repeat it.",
+ "tools": [
+  {
+   "name": "guide",
+   "description": "How to use the iPhone through these tools: the look-act-look loop, positions, scrolling, typing, gestures, routes, what not to do, and the passcode rules. Read it before the first action.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "GUIDE"
+    ]
+   ]
+  },
+  {
+   "name": "get_status",
+   "description": "iDevBench's state: the connected iPhone, location playback (state, position, speed) and the app version.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "GET",
+     "/api/status"
+    ]
+   ],
+   "returns": [
+    0,
+    [
+     "version",
+     "device",
+     "live",
+     "player"
+    ]
+   ]
+  },
+  {
+   "name": "list_devices",
+   "description": "iPhones connected to this computer (USB or Wi-Fi).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "GET",
+     "/api/devices"
+    ]
+   ]
+  },
+  {
+   "name": "connect_device",
+   "description": "Connect to an iPhone for the location tools: the first one found unless udid is given. driver 'mock' uses a pretend phone (no iPhone needed). connection: auto, usb or network.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "udid": {
+      "type": "string"
+     },
+     "driver": {
+      "type": "string",
+      "enum": [
+       "pmd3",
+       "mock"
+      ]
+     },
+     "connection": {
+      "type": "string",
+      "enum": [
+       "auto",
+       "usb",
+       "network"
+      ]
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/connect",
+     {
+      "driver": "pmd3"
+     }
+    ]
+   ]
+  },
+  {
+   "name": "disconnect_device",
+   "description": "Disconnect from the iPhone (its simulated location stays until clear_location).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/disconnect",
+     {}
+    ]
+   ]
+  },
+  {
+   "name": "mount_developer_image",
+   "description": "Mount Apple's Developer Disk Image, which location simulation and mirroring need (normally done when connecting). The iPhone must be unlocked.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/device/mount",
+     {}
+    ]
+   ]
+  },
+  {
+   "name": "reveal_developer_mode",
+   "description": "Make the iPhone show its Developer Mode switch (Settings > Privacy & Security); the user then turns it on and restarts the phone.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/device/reveal-developer-mode",
+     {}
+    ]
+   ]
+  },
+  {
+   "name": "search_place",
+   "description": "Find a place by name or address; returns candidates with lat and lon.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "q"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "GET",
+     "/api/geocode"
+    ]
+   ]
+  },
+  {
+   "name": "parse_map_link",
+   "description": "Coordinates from a Google Maps link or pasted coordinates.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "text"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/links/parse"
+    ]
+   ]
+  },
+  {
+   "name": "set_location",
+   "description": "Teleport: the iPhone reports this GPS position until changed or cleared (connect_device first).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "lat": {
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90
+     },
+     "lon": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180
+     }
+    },
+    "required": [
+     "lat",
+     "lon"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/location/set"
+    ]
+   ]
+  },
+  {
+   "name": "clear_location",
+   "description": "Stop spoofing: the iPhone goes back to its real GPS position.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/location/clear",
+     {}
+    ]
+   ]
+  },
+  {
+   "name": "drive_route",
+   "description": "Build a route through 2 or more checkpoints and play it on the iPhone at realistic speeds. legs: one per stretch between checkpoints (so checkpoints - 1), each with mode car, bike, foot, sea or straight and an optional cruise_kmh. closed: true returns to the start. Returns the route's id and summary (distance, duration). Control it with playback.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "waypoints": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "lat": {
+         "type": "number",
+         "minimum": -90,
+         "maximum": 90
+        },
+        "lon": {
+         "type": "number",
+         "minimum": -180,
+         "maximum": 180
+        },
+        "name": {
+         "type": "string"
+        },
+        "dwell_s": {
+         "type": "number",
+         "minimum": 0,
+         "description": "seconds to wait here"
+        },
+        "hold": {
+         "type": "boolean",
+         "description": "stop here until playback 'continue'"
+        }
+       },
+       "required": [
+        "lat",
+        "lon"
+       ]
+      },
+      "minItems": 2
+     },
+     "legs": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "mode": {
+         "type": "string",
+         "enum": [
+          "car",
+          "bike",
+          "foot",
+          "sea",
+          "straight"
+         ]
+        },
+        "cruise_kmh": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        }
+       },
+       "required": [
+        "mode"
+       ]
+      }
+     },
+     "name": {
+      "type": "string"
+     },
+     "closed": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "waypoints",
+     "legs"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/route/build"
+    ],
+    [
+     "POST",
+     "/api/player/load/{id}"
+    ],
+    [
+     "POST",
+     "/api/player/play"
+    ]
+   ],
+   "returns": [
+    0,
+    [
+     "id",
+     "name",
+     "summary"
+    ]
+   ]
+  },
+  {
+   "name": "play_track",
+   "description": "Play a track of points on the iPhone, like a GPX file: points are [lat, lon] or [lat, lon, seconds from the start]. Without times it moves at cruise_kmh.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "points": {
+      "type": "array",
+      "items": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "minItems": 2,
+       "maxItems": 3
+      },
+      "minItems": 2
+     },
+     "name": {
+      "type": "string"
+     },
+     "cruise_kmh": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "use_times": {
+      "type": "boolean"
+     },
+     "reverse": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "points"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/gpx/timeline"
+    ],
+    [
+     "POST",
+     "/api/player/load/{id}"
+    ],
+    [
+     "POST",
+     "/api/player/play"
+    ]
+   ],
+   "returns": [
+    0,
+    [
+     "id",
+     "name",
+     "summary"
+    ]
+   ]
+  },
+  {
+   "name": "playback",
+   "description": "Control the loaded route or track: play, pause, resume, continue (after a hold checkpoint), stop.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "enum": [
+       "play",
+       "pause",
+       "resume",
+       "continue",
+       "stop"
+      ]
+     }
+    },
+    "required": [
+     "action"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/player/{action}",
+     {}
+    ]
+   ]
+  },
+  {
+   "name": "seek_playback",
+   "description": "Jump to t seconds into the loaded route.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "t": {
+      "type": "number",
+      "minimum": 0
+     }
+    },
+    "required": [
+     "t"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/player-seek"
+    ]
+   ]
+  },
+  {
+   "name": "playback_options",
+   "description": "Playback options: multiplier (speed factor), loop ('off', 'loop' or 'bounce'), jitter_m (GPS noise in metres), tick_s (seconds between updates), lap_limit (0 = no limit).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "multiplier": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "loop": {
+      "type": "string"
+     },
+     "jitter_m": {
+      "type": "number",
+      "minimum": 0
+     },
+     "tick_s": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "lap_limit": {
+      "type": "integer",
+      "minimum": 0
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/player-options"
+    ]
+   ]
+  },
+  {
+   "name": "joystick",
+   "description": "Walk or drive live from the current position: moving true with a bearing (degrees, 0 = north) and speed_kmh; moving false stops.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "moving": {
+      "type": "boolean"
+     },
+     "bearing": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 360
+     },
+     "speed_kmh": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     }
+    },
+    "required": [
+     "moving"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/joystick"
+    ]
+   ]
+  },
+  {
+   "name": "list_favourites",
+   "description": "The user's saved favourite places (name, lat, lon).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "GET",
+     "/api/store"
+    ]
+   ],
+   "returns": [
+    0,
+    [
+     "favorites"
+    ]
+   ]
+  },
+  {
+   "name": "start_mirroring",
+   "description": "Start screen mirroring; needed before screenshot and any touch, button or typing. Needs iOS 27+, Developer Mode, the cable and an unlocked iPhone. driver 'mock' uses a pretend screen.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "udid": {
+      "type": "string"
+     },
+     "audio": {
+      "type": "boolean"
+     },
+     "driver": {
+      "type": "string",
+      "enum": [
+       "pmd3",
+       "mock"
+      ]
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/screen/start",
+     {
+      "audio": false
+     }
+    ]
+   ]
+  },
+  {
+   "name": "stop_mirroring",
+   "description": "Stop screen mirroring.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/screen/stop",
+     {}
+    ]
+   ]
+  },
+  {
+   "name": "mirroring_status",
+   "description": "Mirroring state, the screen's width and height in pixels, and rotation (degrees the phone is turned).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "GET",
+     "/api/screen"
+    ]
+   ]
+  },
+  {
+   "name": "screenshot",
+   "description": "See the iPhone's screen now (a PNG in the phone's native, portrait orientation). Positions for tap and the others are fractions of it: x = pixel x / width, y = pixel y / height.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "GET",
+     "/api/screen/screenshot"
+    ]
+   ]
+  },
+  {
+   "name": "tap",
+   "description": "Tap a point. x and y are fractions of the screenshot (0,0 top left; 1,1 bottom right).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     },
+     "y": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     }
+    },
+    "required": [
+     "x",
+     "y"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/screen/input",
+     {
+      "t": "tap"
+     }
+    ]
+   ]
+  },
+  {
+   "name": "long_press",
+   "description": "Touch and hold a point (context menus, moving icons). ms defaults to 800.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     },
+     "y": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     },
+     "ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 5000
+     }
+    },
+    "required": [
+     "x",
+     "y"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/screen/input",
+     {
+      "t": "long_press"
+     }
+    ]
+   ]
+  },
+  {
+   "name": "swipe",
+   "description": "Drag a finger from (x1,y1) to (x2,y2) in ms milliseconds (default 300). To scroll down a list, swipe upwards.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x1": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     },
+     "y1": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     },
+     "x2": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     },
+     "y2": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     },
+     "ms": {
+      "type": "integer",
+      "minimum": 50,
+      "maximum": 5000
+     }
+    },
+    "required": [
+     "x1",
+     "y1",
+     "x2",
+     "y2"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/screen/input",
+     {
+      "t": "swipe"
+     }
+    ]
+   ]
+  },
+  {
+   "name": "gesture",
+   "description": "A system gesture: home (Home Screen), app_switcher, control_centre, notification_centre or back (swipe in from the left edge).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "enum": [
+       "home",
+       "app_switcher",
+       "control_centre",
+       "notification_centre",
+       "back"
+      ]
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/screen/input",
+     {
+      "t": "gesture"
+     }
+    ]
+   ]
+  },
+  {
+   "name": "press_button",
+   "description": "Press a hardware button: home, lock, volume-up, volume-down, mute or siri (held for Siri).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "enum": [
+       "home",
+       "lock",
+       "volume-up",
+       "volume-down",
+       "mute",
+       "siri"
+      ]
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/screen/input",
+     {
+      "t": "button"
+     }
+    ]
+   ]
+  },
+  {
+   "name": "type_text",
+   "description": "Type text into the focused field (tap it first). US keyboard layout; up to 2000 characters; accents and emoji are skipped.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "required": [
+     "text"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/screen/input",
+     {
+      "t": "text"
+     }
+    ]
+   ]
+  },
+  {
+   "name": "press_key",
+   "description": "Press one key by its HID usage, optionally with command (the ⌘ key): 40 Return, 41 Escape, 42 Backspace, 43 Tab, 44 Space, 79-82 arrows (right, left, down, up), 4-29 the letters a-z (4 = a, so command + 4 is Select All, 6 Copy, 25 Paste).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "usage": {
+      "type": "integer",
+      "minimum": 4,
+      "maximum": 231
+     },
+     "command": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "usage"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/screen/input",
+     {
+      "t": "key"
+     }
+    ]
+   ]
+  },
+  {
+   "name": "refresh_mirroring",
+   "description": "Restart the picture if screenshots look frozen.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "POST",
+     "/api/screen/input",
+     {
+      "t": "refresh"
+     }
+    ]
+   ]
+  },
+  {
+   "name": "phone_performance",
+   "description": "The iPhone's CPU (% of all cores), memory in use and total (bytes), GPU (%), its frame rate, battery level, charging and battery temperature (°C), while mirroring. Null until measured: the first call starts measuring, so ask again after a few seconds.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "GET",
+     "/api/screen/perf"
+    ]
+   ]
+  },
+  {
+   "name": "wait",
+   "description": "Wait ms milliseconds (up to 10000), for example for an app to open before the next screenshot.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000
+     }
+    },
+    "required": [
+     "ms"
+    ],
+    "additionalProperties": false
+   },
+   "call": [
+    [
+     "WAIT"
+    ]
+   ]
+  }
+ ]
+}

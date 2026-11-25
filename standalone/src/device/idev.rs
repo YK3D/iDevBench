@@ -47,7 +47,7 @@ pub fn friendly(e: &IdeviceError) -> String {
         }
         IdeviceError::PairingDialogResponsePending => "Tap Trust on the iPhone, enter the passcode, then try again.".into(),
         IdeviceError::UserDeniedPairing => "The iPhone refused to trust this computer. Unplug, plug back in and tap Trust.".into(),
-        IdeviceError::PasswordProtected => "Unlock the iPhone and try again.".into(),
+        IdeviceError::PasswordProtected | IdeviceError::DeviceLocked => "The iPhone is locked. Unlock it and try again.".into(),
         IdeviceError::DeveloperModeNotEnabled => {
             "Developer Mode is off. Use 'Reveal Developer Mode', then turn it on in Settings › Privacy & Security.".into()
         }
@@ -63,18 +63,40 @@ async fn usbmux() -> Result<UsbmuxdConnection, String> {
     addr().connect(1).await.map_err(|e| friendly(&e))
 }
 
-async fn find_device(udid: Option<&str>) -> Result<(UsbmuxdProvider, String), String> {
+pub const WIFI_HELP: &str = "This iPhone can't be reached over Wi-Fi. Plug it in once, press Device tools › Allow Wi-Fi \
+                             connection, then keep it unlocked and on the same network as this computer.";
+
+fn is_usb(c: &Connection) -> bool {
+    matches!(c, Connection::Usb)
+}
+
+fn conn_label(c: &Connection) -> &'static str {
+    match c {
+        Connection::Usb => "USB",
+        Connection::Network(_) => "Wi-Fi",
+        Connection::Unknown(_) => "Other",
+    }
+}
+
+/// The phone to talk to, over the chosen connection: `Auto` takes the cable when the phone is
+/// plugged in, else Wi-Fi. usbmuxd lists a phone that is both plugged in and on Wi-Fi twice.
+pub(crate) async fn find_device(udid: Option<&str>, via: super::Via) -> Result<(UsbmuxdProvider, String), String> {
+    use super::Via;
     let mut mux = usbmux().await?;
     let devices = mux.get_devices().await.map_err(|e| friendly(&e))?;
-    let dev = match udid {
-        Some(u) if !u.is_empty() => devices.into_iter().find(|d| d.udid == u),
-        _ => devices
-            .iter()
-            .find(|d| matches!(d.connection_type, Connection::Usb))
-            .cloned()
-            .or_else(|| devices.into_iter().next()),
-    }
-    .ok_or("No iPhone found. Plug it in with a cable, unlock it and tap Trust.")?;
+    let wanted = |d: &&idevice::usbmuxd::UsbmuxdDevice| {
+        udid.is_none_or(|u| u.is_empty() || d.udid == u)
+            && match via {
+                Via::Auto => true,
+                Via::Usb => is_usb(&d.connection_type),
+                Via::Network => matches!(d.connection_type, Connection::Network(_)),
+            }
+    };
+    let dev = devices.iter().filter(wanted).find(|d| is_usb(&d.connection_type)).or_else(|| devices.iter().find(wanted)).cloned();
+    let dev = dev.ok_or(match via {
+        super::Via::Network => WIFI_HELP,
+        _ => "No iPhone found. Plug it in with a cable, unlock it and tap Trust.",
+    })?;
     let conn = match &dev.connection_type {
         Connection::Usb => "USB".to_string(),
         Connection::Network(ip) => format!("Wi-Fi ({ip})"),
@@ -85,12 +107,25 @@ async fn find_device(udid: Option<&str>) -> Result<(UsbmuxdProvider, String), St
 
 pub async fn list_devices() -> Result<Vec<serde_json::Value>, String> {
     let mut mux = usbmux().await?;
-    let devices = mux.get_devices().await.map_err(|e| friendly(&e))?;
+    let mut devices = mux.get_devices().await.map_err(|e| friendly(&e))?;
+    // one entry per phone (the cable first), naming every way it can be reached
+    devices.sort_by_key(|d| !is_usb(&d.connection_type));
     let mut out = Vec::new();
-    for d in devices {
+    let mut seen = std::collections::HashSet::new();
+    for d in devices.iter() {
+        if !seen.insert(d.udid.clone()) {
+            continue;
+        }
+        let mut conns: Vec<&str> = Vec::new();
+        for o in devices.iter().filter(|o| o.udid == d.udid) {
+            let l = conn_label(&o.connection_type);
+            if !conns.contains(&l) {
+                conns.push(l);
+            }
+        }
         let provider = d.to_provider(addr(), LABEL);
         let mut entry = serde_json::json!({"udid": d.udid, "name": "", "ios_version": "",
-            "connection": if matches!(d.connection_type, Connection::Usb) { "USB" } else { "Network" }});
+            "connection": conns.join(" + "), "connections": conns});
         match LockdownClient::connect(&provider).await {
             Ok(mut ld) => {
                 if let Ok(v) = ld.get_value(Some("ProductVersion"), None).await {
@@ -108,7 +143,7 @@ pub async fn list_devices() -> Result<Vec<serde_json::Value>, String> {
 }
 
 /// Pair if this computer has no pairing record for the phone yet (shows "Trust This Computer?").
-async fn ensure_paired(provider: &UsbmuxdProvider) -> Result<(), String> {
+pub(crate) async fn ensure_paired(provider: &UsbmuxdProvider) -> Result<(), String> {
     if provider.get_pairing_file().await.is_ok() {
         return Ok(());
     }
@@ -133,7 +168,7 @@ fn random_uuid() -> String {
     )
 }
 
-fn major(v: &str) -> u32 {
+pub(crate) fn major(v: &str) -> u32 {
     v.split('.').next().and_then(|x| x.parse().ok()).unwrap_or(0)
 }
 
@@ -158,17 +193,12 @@ async fn download(path: &str) -> Result<Vec<u8>, String> {
 }
 
 /// Mount the Developer Disk Image if it is not mounted yet. Returns a note for the user.
-async fn ensure_ddi(provider: &UsbmuxdProvider, version: &str, chip_id: Option<u64>) -> Result<Option<String>, String> {
+pub(crate) async fn ensure_ddi(provider: &UsbmuxdProvider, version: &str, chip_id: Option<u64>) -> Result<Option<String>, String> {
     let mut mounter = ImageMounter::connect(provider).await.map_err(|e| friendly(&e))?;
     let personalized = major(version) >= 17;
     let kind = if personalized { "Personalized" } else { "Developer" };
     if mounter.lookup_image(kind).await.map(|s| !s.is_empty()).unwrap_or(false) {
         return Ok(None);
-    }
-    if major(version) >= 27 {
-        return Err("iOS 27+ installs the developer image as a cryptex, which this version cannot do yet. \
-                    Mount it once with Xcode or pymobiledevice3, then connect again."
-            .into());
     }
     if personalized {
         let image = download("PersonalizedImages/Xcode_iOS_DDI_Personalized/Image.dmg").await?;
@@ -178,7 +208,14 @@ async fn ensure_ddi(provider: &UsbmuxdProvider, version: &str, chip_id: Option<u
         mounter
             .mount_personalized(provider, image, trust, &manifest, None, chip)
             .await
-            .map_err(|e| format!("Could not mount the Developer Disk Image: {}", friendly(&e)))?;
+            .map_err(|e| {
+                // iPhones newer than the image only take it as a cryptex, which this app can't install yet.
+                if matches!(e, IdeviceError::DeviceLocked | IdeviceError::PasswordProtected) {
+                    return format!("Could not mount the Developer Disk Image: {}", friendly(&e));
+                }
+                let hint = if major(version) >= 27 { " If this keeps failing, mount it once with Xcode or the browser edition." } else { "" };
+                format!("Could not mount the Developer Disk Image: {}.{hint}", friendly(&e))
+            })?;
     } else {
         let mut parts: Vec<&str> = version.split('.').collect();
         parts.truncate(2);
@@ -191,9 +228,9 @@ async fn ensure_ddi(provider: &UsbmuxdProvider, version: &str, chip_id: Option<u
 }
 
 impl IdeviceDriver {
-    pub async fn connect(&mut self, udid: Option<String>) -> Result<DeviceInfo, String> {
+    pub async fn connect(&mut self, udid: Option<String>, via: super::Via) -> Result<DeviceInfo, String> {
         self.disconnect().await;
-        let (provider, connection) = find_device(udid.as_deref()).await?;
+        let (provider, connection) = find_device(udid.as_deref(), via).await?;
         let real_udid = provider.udid.clone();
         ensure_paired(&provider).await?;
         let pairing = provider.get_pairing_file().await.map_err(|e| friendly(&e))?;
@@ -210,6 +247,7 @@ impl IdeviceDriver {
         match ensure_ddi(&provider, &version, chip).await {
             Ok(Some(n)) => notes.push(n),
             Ok(None) => {}
+            Err(e) if e.contains("is locked") => notes.push(e),
             Err(e) => notes.push(format!("{e} If setting a location fails, check Developer Mode and the internet connection.")),
         }
 
@@ -391,8 +429,26 @@ async fn session_legacy(provider: UsbmuxdProvider, mut rx: mpsc::Receiver<Cmd>, 
     }
 }
 
+/// Turns on the phone's "Show this iPhone when on Wi-Fi" setting (Wi-Fi sync), over the cable, so
+/// it can be connected over Wi-Fi from then on.
+pub async fn enable_wifi(udid: Option<String>) -> Result<String, String> {
+    let (provider, _) = find_device(udid.as_deref(), super::Via::Usb)
+        .await
+        .map_err(|e| format!("Plug the iPhone in with a cable for this step. ({e})"))?;
+    ensure_paired(&provider).await?;
+    let pairing = provider.get_pairing_file().await.map_err(|e| friendly(&e))?;
+    let mut ld = LockdownClient::connect(&provider).await.map_err(|e| friendly(&e))?;
+    ld.start_session(&pairing).await.map_err(|e| friendly(&e))?;
+    ld.set_value("EnableWifiConnections", true.into(), Some("com.apple.mobile.wireless_lockdown"))
+        .await
+        .map_err(|e| friendly(&e))?;
+    Ok("Wi-Fi connections are on for this iPhone. Choose Wi-Fi in Device tools › Connect over, keep the phone \
+        unlocked on the same network, and connect."
+        .into())
+}
+
 pub async fn reveal_developer_mode(udid: Option<String>) -> Result<String, String> {
-    let (provider, _) = find_device(udid.as_deref()).await?;
+    let (provider, _) = find_device(udid.as_deref(), super::Via::Auto).await?;
     ensure_paired(&provider).await?;
     let mut amfi = AmfiClient::connect(&provider).await.map_err(|e| friendly(&e))?;
     amfi.reveal_developer_mode_option_in_ui().await.map_err(|e| friendly(&e))?;

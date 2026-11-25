@@ -69,6 +69,20 @@
     <symbol id="i-offline" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.4 9.1 4.7 4.7 0 0 0 7 18.5z"/><path d="M12 9.5v6M9.5 13l2.5 2.5 2.5-2.5"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></symbol>
     <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M19.5 4.5L11 13"/><path d="M18 14v4a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 18V8a1.5 1.5 0 0 1 1.5-1.5h4"/></symbol>
+    <symbol id="i-screen" viewBox="0 0 24 24"><rect x="6.5" y="2.8" width="11" height="18.4" rx="2.4"/><rect x="8.6" y="5.6" width="6.8" height="10.6" rx=".6"/><path d="M10.8 18.6h2.4"/></symbol>
+    <symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle fill="currentColor" stroke="none" cx="12" cy="12" r="3.6"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M4.5 10.5L12 4l7.5 6.5V19a1 1 0 0 1-1 1H14v-5.5h-4V20H5.5a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-vol-up" viewBox="0 0 24 24"><path d="M3.5 9.5h3l4-3.5v12l-4-3.5h-3z"/><path d="M15 12h5.5M17.75 9.25v5.5"/></symbol>
+    <symbol id="i-vol-down" viewBox="0 0 24 24"><path d="M3.5 9.5h3l4-3.5v12l-4-3.5h-3z"/><path d="M15 12h5.5"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M3.5 9.5h3l4-3.5v12l-4-3.5h-3z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 11v2M7.5 8.5v7M11 5.5v13M14.5 8v8M18 10v4"/></symbol>
+    <symbol id="i-cards" viewBox="0 0 24 24"><rect x="8.5" y="4" width="10" height="14" rx="1.8"/><path d="M5.5 7v11.5A1.5 1.5 0 0 0 7 20h8"/></symbol>
+    <symbol id="i-toggles" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="6.5" rx="3.25"/><circle cx="16.75" cy="7.75" r="1.6"/><rect x="4" y="13" width="16" height="6.5" rx="3.25"/><circle cx="7.25" cy="16.25" r="1.6"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 0 2.1-5"/><path d="M5 4.5V8h3.5"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.5-2h5.6l1.5 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.8" r="3.3"/></symbol>
+    <symbol id="i-bars" viewBox="0 0 24 24"><path d="M5 19.5v-6M10 19.5V5M15 19.5v-9M20 19.5v-12"/></symbol>
     <symbol id="i-start" viewBox="0 0 24 24"><path d="M5 20V4M5 4.5h10.5l-2.5 4 2.5 4H5"/></symbol>
   </defs>
 </svg>
@@ -92,6 +106,11 @@
       <span id="update-text" class="grow"></span>
       <button id="btn-update-install" class="primary" hidden>Restart now</button>
     </div>
+    <!-- ============ SECTIONS: location tools, or the iPhone's screen ============ -->
+    <nav class="seg modes" id="modes" role="tablist" aria-label="Section">
+      <button type="button" role="tab" data-mode="location" class="active"><svg class="ico"><use href="#i-pin"/></svg>Location</button>
+      <button type="button" role="tab" data-mode="screen" data-action="screen" title="Mirroring"><svg class="ico"><use href="#i-screen"/></svg>Mirroring</button>
+    </nav>
 
     <!-- ============ DEVICE ============ -->
     <details class="section" id="sec-device" open>
@@ -118,9 +137,33 @@
           <button id="btn-disconnect" hidden data-action="connect">Disconnect</button>
         </div>
         <div id="device-status" class="status">Not connected</div>
+        <!-- more iPhones at once: extra phones follow the main one -->
+        <div id="mirrors" class="mirrors" hidden>
+          <div class="mirrors-head"><span class="mirrors-title">More iPhones</span><span class="tag">Experimental</span>
+            <button class="info" type="button" data-tip="Every iPhone added here follows the main one: teleports, routes, GPX tracks, the joystick and Stop spoofing all reach each of them. A phone that is slow or drops out never holds up the others; it is marked here until you remove it. Removing a phone sends it back to its real location.">i</button></div>
+          <ul id="mirror-list" class="mirror-list"></ul>
+          <div class="field-row">
+            <label class="grow">Add an iPhone
+              <select id="mirror-select"><option value="">No other iPhone found</option></select>
+            </label>
+            <button id="btn-mirror-add">Add</button>
+          </div>
+        </div>
         <details class="sub" id="device-tools">
           <summary>Device tools</summary>
           <div class="tool-list">
+            <div class="field-row">
+              <label class="grow">Connect over
+                <select id="conn-via">
+                  <option value="auto">Automatic (cable if plugged in, else Wi-Fi)</option>
+                  <option value="usb">USB cable only</option>
+                  <option value="network">Wi-Fi only</option>
+                </select>
+              </label>
+              <button class="info" type="button" data-tip="Wi-Fi works once the phone allows it: plug it in, press Allow Wi-Fi connection below, then keep it unlocked and on the same network as this computer. Wi-Fi is slower to answer than the cable, so very fast routes can lag a little. Bluetooth can't be used: iPhones only offer the location tools over a cable or the network.">i</button>
+            </div>
+            <div class="tool"><button id="btn-wifi">Allow Wi-Fi connection</button>
+              <button class="info" type="button" data-tip="Turns on the iPhone's &quot;Show this iPhone when on Wi-Fi&quot; setting, so this computer can reach it without the cable. Needs the phone plugged in once. Experimental.">i</button></div>
             <div class="tool"><button id="btn-reveal">Reveal Developer Mode</button>
               <button class="info" type="button" data-tip="iOS hides the Developer Mode switch until a computer asks for it. Press this with the iPhone plugged in and unlocked, then open Settings › Privacy & Security › Developer Mode on the phone, turn it on and restart. Needed once per phone.">i</button></div>
             <div class="tool"><button id="btn-mount">Mount developer image</button>
@@ -131,7 +174,7 @@
               <button class="info" type="button" data-tip="Looks for a newer version of this app on GitHub. Updates download in the background and install when you press Restart now, or the next time you open the app.">i</button></div>
           </div>
         </details>
-        <div class="field-row">
+        <div class="field-row" id="clear-row">
           <button id="btn-clear" class="danger grow" data-action="clear">Stop spoofing — back to real location</button>
           <button class="info" type="button" data-tip="Tells the iPhone to stop using the simulated location and go back to real GPS, then shows this computer's approximate real location on the map (the iPhone doesn't share its own GPS over USB). If the phone still looks wrong, restart it.">i</button>
         </div>
@@ -415,6 +458,18 @@
       <p id="player-empty" class="hint">Build a route or load a GPX track to play it on the device.</p>
     </section>
     <div id="toast" role="status" aria-live="polite"></div>
+    <!-- ============ SCREEN (its own section, see the switch at the top) ============ -->
+    <div id="screen-panel" hidden>
+      <details class="section" id="sec-mirror" open>
+        <summary><svg class="ico sec-ico"><use href="#i-screen"/></svg><span class="sec-title">Mirroring</span></summary>
+        <div class="sec-body">
+          <label class="check"><input id="mirror-audio" type="checkbox" checked> Play the iPhone's sound</label>
+          <button id="btn-mirror" class="primary">Start mirroring</button>
+          <div id="mirror-status" class="status">Not mirroring</div>
+          <button id="btn-agent-setup" type="button">Connect an AI agent</button>
+        </div>
+      </details>
+    </div>
   </aside>
   <div id="resizer" role="separator" aria-orientation="vertical" aria-label="Resize the side menu" tabindex="0" title="Drag to resize · double-click to reset"></div>
   <main id="map">
@@ -445,6 +500,47 @@
       <span class="muted">km/h</span>
     </div>
   </main>
+  <section id="mirror-view" aria-label="iPhone screen" hidden>
+    <div class="mirror-stage">
+      <div class="mirror-phone">
+      <div class="mirror-device" id="mirror-device">No iPhone connected</div>
+      <div class="mirror-screen" id="mirror-screen">
+        <canvas id="mirror-canvas" tabindex="0" aria-label="The iPhone's screen. Click to tap; type to send keys."></canvas>
+        <canvas id="mirror-trail" class="mirror-trail" aria-hidden="true"></canvas>
+        <span id="mirror-cursor" class="mirror-cursor" hidden></span>
+        <div id="mirror-stats" class="mirror-stats" hidden></div>
+        <div class="mirror-skeleton">
+          <div class="sk-screen">
+            <div class="sk-status"><span>9:41</span><span class="sk-island"></span><span class="sk-icons"><i></i><i></i><i></i></span></div>
+            <div class="sk-grid" id="sk-grid"></div>
+            <div class="sk-dots"><i></i><i></i><i></i></div>
+            <div class="sk-dock" id="sk-dock"></div>
+            <p id="mirror-empty" class="mirror-empty">Press Start mirroring to see the iPhone's screen here.</p>
+          </div>
+        </div>
+      </div>
+      </div>
+      <div class="mirror-tools" id="mirror-tools" role="toolbar" aria-label="iPhone buttons and gestures" aria-orientation="vertical">
+        <button data-button="home" title="Home button"><svg class="ico"><use href="#i-home"/></svg><span>Home</span></button>
+        <button data-button="lock" title="Side button: lock or wake"><svg class="ico"><use href="#i-lock"/></svg><span>Lock</span></button>
+        <button data-button="volume-up" title="Volume up"><svg class="ico"><use href="#i-vol-up"/></svg><span>Volume up</span></button>
+        <button data-button="volume-down" title="Volume down"><svg class="ico"><use href="#i-vol-down"/></svg><span>Volume down</span></button>
+        <button data-button="mute" title="Mute"><svg class="ico"><use href="#i-mute"/></svg><span>Mute</span></button>
+        <button data-button="siri" title="Hold the side button for Siri"><svg class="ico"><use href="#i-wave"/></svg><span>Siri</span></button>
+        <hr>
+        <button data-gesture="app_switcher" title="Swipe up and hold: the open apps"><svg class="ico"><use href="#i-cards"/></svg><span>App switcher</span></button>
+        <button data-gesture="control_centre" title="Swipe down from the top right"><svg class="ico"><use href="#i-toggles"/></svg><span>Control Centre</span></button>
+        <button data-gesture="notification_centre" title="Swipe down from the top left"><svg class="ico"><use href="#i-bell"/></svg><span>Notifications</span></button>
+        <button data-gesture="back" title="Swipe in from the left edge"><svg class="ico"><use href="#i-back"/></svg><span>Back</span></button>
+        <hr>
+        <button id="btn-mirror-rotate" title="Turn the picture by 90° (if it doesn't follow the iPhone)"><svg class="ico"><use href="#i-rotate"/></svg><span>Rotate</span></button>
+        <button id="btn-mirror-refresh" title="Restart the picture if it froze"><svg class="ico"><use href="#i-refresh"/></svg><span>Restart stream</span></button>
+        <button id="btn-mirror-shot" title="Save a screenshot"><svg class="ico"><use href="#i-camera"/></svg><span>Screenshot</span></button>
+        <button id="btn-mirror-rec" title="Record the screen and sound"><svg class="ico"><use href="#i-rec"/></svg><span>Record</span></button>
+        <button id="btn-mirror-stats" title="Frame rate, data rate, and the iPhone's CPU, memory, GPU and temperature"><svg class="ico"><use href="#i-bars"/></svg><span>Stats</span></button>
+      </div>
+    </div>
+  </section>
 </div>
 
 <!-- ============ SETTINGS ============ -->
@@ -456,6 +552,8 @@
       <button type="button" data-pane="keys">Shortcuts</button>
       <button type="button" data-pane="google">Google Maps</button>
       <button type="button" data-pane="offline">Offline maps</button>
+      <button type="button" data-pane="screen">Mirroring</button>
+      <button type="button" data-pane="agents">AI agents</button>
       <button type="button" data-pane="updates">Updates</button>
       <button type="button" data-pane="about">About</button>
     </nav>
@@ -520,6 +618,21 @@
       <div id="offline-progress" class="progress" hidden><span></span></div>
       <h3>Saved areas</h3>
       <ul id="offline-areas" class="list"></ul>
+    </section>
+    <section class="pane" data-pane="screen" hidden>
+      <label>Save screenshots and recordings to
+        <span class="field-row"><input id="capture-folder" class="grow" type="text" autocomplete="off" spellcheck="false" placeholder="Downloads folder">
+        <button id="btn-capture-browse" type="button" class="fixed">Browse…</button></span>
+      </label>
+      <p class="hint">Leave it empty for your Downloads folder.</p>
+    </section>
+    <section class="pane" data-pane="agents" hidden>
+      <p class="hint">Let an AI agent (Claude, ChatGPT Codex, Cursor, Gemini and others) use your iPhone through iDevBench: see and control the screen, set its location and drive routes. Copy this prompt and paste it into the agent once. Keep iDevBench open while the agent works.</p>
+      <textarea id="agent-prompt" rows="9" readonly spellcheck="false"></textarea>
+      <div class="field-row"><button id="btn-agent-copy" type="button" class="primary grow">Copy prompt</button></div>
+      <h3>Claude Desktop</h3>
+      <p class="hint">The Claude app for Windows and Mac can't set this up from a chat. This button adds iDevBench to it; then quit Claude completely and open it again.</p>
+      <div class="field-row"><button id="btn-agent-claude" type="button" class="fixed">Add to Claude Desktop</button><span id="agent-claude-status" class="small muted"></span></div>
     </section>
     <section class="pane" data-pane="updates" hidden>
       <label>Update channel

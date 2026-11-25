@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+import re
+import sys
 import uuid
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Awaitable, Callable, Literal, Optional
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -24,6 +27,9 @@ from .device.cli import CliDriver
 from .device.mock import MockDriver
 from .device.pmd3 import Pmd3Driver
 from .gpx_io import parse_gpx, safe_filename, write_gpx
+from .mirrors import FanOut, MirrorLink
+from . import mcp
+from .screen import Screen, ScreenError, is_move, parse_input
 from .player import Player
 from .profile import (
     Leg,
@@ -56,16 +62,31 @@ class AppState:
     def __init__(self) -> None:
         self.drivers: dict[str, DeviceDriver] = {d.key: d for d in (Pmd3Driver(), CliDriver(), MockDriver())}
         self.driver_key = "pmd3"
-        self.player = Player(lambda: self.driver)
+        # extra iPhones that follow the main one, by UDID (see mirrors.py)
+        self.mirrors: dict[str, MirrorLink] = {}
+        self.fanout = FanOut(lambda: self.driver, lambda: list(self.mirrors.values()))
+        self.player = Player(lambda: self.fanout)
         self.timelines: "OrderedDict[str, tuple[Timeline, str, list, bool]]" = OrderedDict()
         self.store = Store()
         self.updater = Updater()  # replaced by __main__ with the real one; disabled from source
         self.offline = Offline(data_dir())
         self.feature_tests = FeatureTests(data_dir())
+        self.screen = Screen()
 
     @property
     def driver(self) -> DeviceDriver:
         return self.drivers[self.driver_key]
+
+    async def drop_mirror(self, udid: str, clear: bool = False) -> bool:
+        link = self.mirrors.pop(udid, None)
+        if link is None:
+            return False
+        await link.close(clear)
+        return True
+
+    async def drop_mirrors(self, clear: bool = False) -> None:
+        for udid in list(self.mirrors):
+            await self.drop_mirror(udid, clear)
 
     def keep_timeline(self, tl: Timeline, name: str, waypoints: list, exportable: bool = True) -> str:
         tid = uuid.uuid4().hex[:12]
@@ -93,7 +114,9 @@ async def lifespan(app: FastAPI):
     yield
     upd_task.cancel()
     try:
+        await app.state.s.screen.stop()
         await app.state.s.player.stop()
+        await app.state.s.drop_mirrors()
         for d in app.state.s.drivers.values():
             await d.disconnect()
     finally:
@@ -144,6 +167,11 @@ async def _feature_test_error(_: Request, exc: FeatureTestError):
     return JSONResponse({"detail": str(exc)}, status_code=exc.status)
 
 
+@app.exception_handler(ScreenError)
+async def _screen_error(_: Request, exc: ScreenError):
+    return JSONResponse({"detail": str(exc)}, status_code=409)
+
+
 @app.exception_handler(ValueError)
 async def _value_error(_: Request, exc: ValueError):
     return JSONResponse({"detail": str(exc)}, status_code=400)
@@ -162,6 +190,19 @@ class TextIn(BaseModel):
 class ConnectIn(BaseModel):
     driver: Literal["pmd3", "cli", "mock"] = "pmd3"
     udid: Optional[str] = None
+    connection: Literal["auto", "usb", "network"] = "auto"
+
+
+class MirrorIn(BaseModel):
+    udid: str
+    connection: Literal["auto", "usb", "network"] = "auto"
+
+
+class UdidIn(BaseModel):
+    udid: Optional[str] = None
+
+
+MAX_MIRRORS = 8
 
 
 class WaypointIn(BaseModel):
@@ -275,13 +316,14 @@ async def status():
         "version": __version__,
         "app": "browser",
         "feature_test": None,
-        "features": {"cli_driver": True, "tunnel_helper": True},
+        "features": {"cli_driver": True, "tunnel_helper": True, "multi_device": True, "wifi": True},
         "driver": s.driver_key,
         "drivers": [{"key": k, "label": v.label, "live": v.live} for k, v in s.drivers.items()],
         "device": d.info.to_dict() if d.info else None,
         "live": d.live,
         "player": s.player.status(),
         "update": s.updater.status(),
+        "mirrors": [m.to_dict() for m in s.mirrors.values()],
     }
 
 
@@ -295,9 +337,13 @@ async def connect(body: ConnectIn):
     s = S()
     await s.player.stop()
     if body.driver != s.driver_key:
+        await s.drop_mirrors()
         await s.driver.disconnect()
         s.driver_key = body.driver
-    info = await s.driver.connect(body.udid or None)
+    if body.udid:
+        await s.drop_mirror(body.udid)  # it becomes the main phone instead
+    info = await s.driver.connect(body.udid or None, body.connection)
+    await s.drop_mirror(info.udid)
     return {"device": info.to_dict()}
 
 
@@ -305,8 +351,53 @@ async def connect(body: ConnectIn):
 async def disconnect():
     s = S()
     await s.player.stop()
+    await s.drop_mirrors()
     await s.driver.disconnect()
     return {"ok": True}
+
+
+@app.post("/api/mirrors")
+async def mirror_add(body: MirrorIn):
+    """Another iPhone follows the main one: same position, same route, from now on."""
+    s = S()
+    main = s.driver
+    if not main.connected or main.info is None:
+        raise DeviceError("Connect the main iPhone first.")
+    if not main.live:
+        raise DeviceError("Several iPhones at once need the Direct connection (or the Simulator).")
+    if body.udid == main.info.udid:
+        raise DeviceError("That is the main iPhone already.")
+    if body.udid in s.mirrors:
+        raise DeviceError("That iPhone already follows the main one.")
+    if len(s.mirrors) >= MAX_MIRRORS:
+        raise DeviceError(f"Up to {MAX_MIRRORS} extra iPhones can follow the main one.")
+    drv = type(main)()
+    info = await drv.connect(body.udid, body.connection)
+    if info.udid == main.info.udid or info.udid in s.mirrors:
+        await drv.disconnect()
+        raise DeviceError("That iPhone is connected already.")
+    link = MirrorLink(drv)
+    s.mirrors[info.udid] = link
+    pos = s.player.position
+    if pos is not None:
+        link.push_set(pos.lat, pos.lon)  # catch up with the main phone straight away
+    return {"mirror": link.to_dict(), "mirrors": [m.to_dict() for m in s.mirrors.values()]}
+
+
+@app.delete("/api/mirrors/{udid}")
+async def mirror_remove(udid: str, clear: bool = True):
+    """Stop following; by default the phone goes back to its real location."""
+    s = S()
+    if not await s.drop_mirror(udid, clear):
+        raise HTTPException(404, "That iPhone doesn't follow the main one.")
+    return {"mirrors": [m.to_dict() for m in s.mirrors.values()]}
+
+
+@app.post("/api/device/wifi")
+async def enable_wifi(body: UdidIn):
+    s = S()
+    udid = body.udid or (s.driver.info.udid if s.driver.info else None)
+    return {"message": await s.driver.enable_wifi(udid)}
 
 
 @app.post("/api/device/reveal-developer-mode")
@@ -862,3 +953,192 @@ async def index():
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+# ---------------------------------------------------------------- screen mirroring
+class ScreenStartIn(BaseModel):
+    driver: Optional[Literal["pmd3", "cli", "mock"]] = None
+    udid: Optional[str] = None
+    audio: bool = True
+
+
+@app.get("/api/screen")
+async def screen_status():
+    return S().screen.status
+
+
+@app.post("/api/screen/start")
+async def screen_start(body: ScreenStartIn):
+    s = S()
+    driver = body.driver or s.driver_key
+    udid = body.udid or (s.driver.info.udid if s.driver.info else None)
+    return await s.screen.start(driver == "mock", udid, body.audio)
+
+
+@app.post("/api/screen/stop")
+async def screen_stop():
+    return await S().screen.stop()
+
+
+@app.post("/api/screen/input")
+async def screen_input(body: dict):
+    await S().screen.input(parse_input(body))
+    return {"ok": True}
+
+
+@app.get("/api/screen/screenshot")
+async def screen_screenshot():
+    return Response(await S().screen.screenshot(), media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+_CAPTURE_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,119}")
+
+
+@app.post("/api/screen/save")
+async def screen_save(name: str, request: Request):
+    """Saves a screenshot or recording from the Mirror tab to the folder chosen in Settings
+    (the Downloads folder by default) and returns where it went."""
+    if not _CAPTURE_NAME.fullmatch(name) or not name.endswith((".png", ".mp4", ".webm")):
+        raise HTTPException(400, "Unexpected file name.")
+    chosen = str((S().store.load().get("settings") or {}).get("capture_folder") or "").strip()
+    folder = Path(chosen).expanduser() if chosen else Path.home() / "Downloads"
+    body = await request.body()
+
+    def write() -> str:
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            path, stem, ext = folder / name, *name.rsplit(".", 1)
+            n = 1
+            while path.exists():
+                path, n = folder / f"{stem}-{n}.{ext}", n + 1
+            path.write_bytes(body)
+        except OSError as e:
+            raise HTTPException(400, f"Can't save to {folder}: {e.strerror or e}") from e
+        return str(path)
+
+    return {"path": await asyncio.to_thread(write)}
+
+
+@app.get("/api/screen/perf")
+async def screen_perf():
+    """The phone's CPU, memory, GPU and battery figures while mirroring (the first call starts measuring)."""
+    return S().screen.get_perf()
+
+
+# Windows' folder dialog. This server runs in the background, so the dialog gets a visible
+# (invisible-looking) topmost owner window to come up in front; the path is written as UTF-8
+# bytes because a background process has no console to set an encoding on.
+PICK_FOLDER_PS = (
+    "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
+    "$o=New-Object System.Windows.Forms.Form -Property @{TopMost=$true;ShowInTaskbar=$false;FormBorderStyle='None';Opacity=0;"
+    "StartPosition='Manual';Location=(New-Object System.Drawing.Point(-2000,-2000));Size=(New-Object System.Drawing.Size(1,1))}; "
+    "$o.Show(); $o.Activate(); $d=New-Object System.Windows.Forms.FolderBrowserDialog; "
+    "$d.Description='Folder for screenshots and recordings'; $d.ShowNewFolderButton=$true; "
+    "if($d.ShowDialog($o) -eq 'OK'){$b=[Text.Encoding]::UTF8.GetBytes($d.SelectedPath);$s=[Console]::OpenStandardOutput();$s.Write($b,0,$b.Length);$s.Flush()}; "
+    "$o.Close()"
+)
+
+
+@app.post("/api/pick-folder")
+async def pick_folder():
+    """Shows the system's folder picker on this computer; answers {"path": null} when cancelled."""
+    import subprocess
+
+    if sys.platform == "win32":
+        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-STA", "-Command", PICK_FOLDER_PS]
+    elif sys.platform == "darwin":
+        cmd = ["osascript", "-e", 'POSIX path of (choose folder with prompt "Folder for screenshots and recordings")']
+    else:
+        cmd = ["zenity", "--file-selection", "--directory", "--title=Folder for screenshots and recordings"]
+    flags = 0x08000000 if sys.platform == "win32" else 0  # no console window
+    try:
+        out = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, creationflags=flags)
+    except OSError:
+        raise HTTPException(400, "This computer has no folder picker the app can use. Type the folder's path instead.") from None
+    path = out.stdout.decode("utf-8", "replace").strip()
+    return {"path": path or None}
+
+
+@app.get("/api/mcp/setup")
+async def mcp_setup(request: Request):
+    v = mcp.command(request.headers.get("host", "127.0.0.1:8765"))
+    v["claude_desktop"] = any(p.exists() for p in mcp.claude_desktop_configs())
+    return v
+
+
+@app.post("/api/mcp/claude-desktop")
+async def mcp_claude_desktop(request: Request):
+    return {"paths": await asyncio.to_thread(mcp.add_to_claude_desktop, request.headers.get("host", "127.0.0.1:8765"))}
+
+
+@app.post("/mcp")
+async def mcp_post(request: Request):
+    """Model Context Protocol over HTTP (JSON answers, no sessions) for AI agents; see mcp.py."""
+    try:
+        msg = json.loads(await request.body())
+    except ValueError:
+        return JSONResponse(mcp._error(None, -32700, "Parse error"))
+    answer = await mcp.handle(msg, app, STATIC)
+    return Response(status_code=202) if answer is None else JSONResponse(answer)
+
+
+@app.get("/mcp")
+async def mcp_get():
+    return Response("Send MCP messages with POST.", status_code=405)
+
+
+@app.websocket("/api/screen/ws")
+async def screen_ws(ws: WebSocket):
+    """Live picture, sound and status for the Mirror tab or another program; input goes the other way."""
+    # HTTP middleware does not run for WebSockets, so the local-only check is repeated here.
+    if not _is_local_request(ws.headers.get("host", ""), ws.headers.get("origin", "")):
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    m = S().screen
+    client = m.subscribe()
+    await ws.send_text(json.dumps({"type": "status", "status": m.status}))
+    if m.config:
+        await ws.send_bytes(m.config)
+    with contextlib.suppress(ScreenError):
+        await m.input(("keyframe",))
+
+    async def send() -> None:
+        while True:
+            msg = await client.queue.get()
+            await (ws.send_text(msg) if isinstance(msg, str) else ws.send_bytes(msg))
+
+    inputs: asyncio.Queue = asyncio.Queue()
+
+    async def work() -> None:
+        """Inputs one after another, so a long one (Siri, typing) doesn't hold up reading the next."""
+        held = None
+        while True:
+            i = held or await inputs.get()
+            held = None
+            while is_move(i) and not inputs.empty():  # finger moves that piled up: only the newest matters
+                nxt = inputs.get_nowait()
+                if is_move(nxt):
+                    i = nxt
+                else:
+                    held = nxt
+                    break
+            try:
+                await m.input(i)
+            except (ValueError, ScreenError, DeviceError) as e:
+                client.queue.put_nowait(json.dumps({"type": "error", "detail": str(e)}))
+
+    sender, worker = asyncio.create_task(send()), asyncio.create_task(work())
+    try:
+        while True:
+            text = await ws.receive_text()
+            try:
+                inputs.put_nowait(parse_input(json.loads(text)))
+            except ValueError as e:
+                await ws.send_text(json.dumps({"type": "error", "detail": str(e)}))
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        sender.cancel()
+        worker.cancel()
+        m.unsubscribe(client)

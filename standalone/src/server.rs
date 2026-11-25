@@ -1,7 +1,7 @@
 //! Local HTTP server for the UI: same JSON API as the browser version (server.py), so the
 //! front end in ui/ is shared between both apps.
 
-use crate::device::{DeviceManager, DriverKind};
+use crate::device::{DeviceManager, DriverKind, Via};
 use crate::player::{Devices, Player};
 use crate::profile::{self, Leg, ProfileSettings, Ramp, Timeline, Waypoint};
 use crate::{feature_tests::FeatureTests, geo, gmaps_links, gpx, offline::Offline, routing, store::Store, updater::Updater};
@@ -45,6 +45,7 @@ pub struct AppState {
     pub restart_requested: std::sync::atomic::AtomicBool,
     pub offline: Arc<Offline>,
     pub feature_tests: Arc<FeatureTests>,
+    pub screen: Arc<crate::screen::Screen>,
 }
 
 pub type App = Arc<AppState>;
@@ -63,6 +64,7 @@ impl AppState {
             updater: Arc::new(updater),
             restart: tokio::sync::Notify::new(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
+            screen: Arc::default(),
         })
     }
 
@@ -89,6 +91,7 @@ impl AppState {
 }
 
 // ---------------------------------------------------------------- errors
+#[derive(Debug)]
 pub struct ApiError(pub u16, pub String);
 
 impl IntoResponse for ApiError {
@@ -118,6 +121,9 @@ pub fn router(app: App) -> Router {
         .route("/api/disconnect", post(disconnect))
         .route("/api/device/reveal-developer-mode", post(reveal))
         .route("/api/device/mount", post(mount))
+        .route("/api/device/wifi", post(enable_wifi))
+        .route("/api/mirrors", post(mirror_add))
+        .route("/api/mirrors/{udid}", delete(mirror_remove))
         .route("/api/location/set", post(set_location))
         .route("/api/location/clear", post(clear_location))
         .route("/api/parse-coords", post(parse_coords))
@@ -152,6 +158,19 @@ pub fn router(app: App) -> Router {
         .route("/api/feature-tests/lock", post(ft_lock))
         .route("/api/feature-tests/open", post(ft_open))
         .route("/api/feature-tests/progress", get(ft_progress))
+        .route("/api/screen", get(screen_status))
+        .route("/api/screen/start", post(screen_start))
+        .route("/api/screen/stop", post(screen_stop))
+        .route("/api/screen/input", post(screen_input))
+        .route("/api/screen/screenshot", get(screen_screenshot))
+        .route("/api/screen/ws", get(screen_ws))
+        // Recordings can be long; they come from the app's own page.
+        .route("/api/screen/save", post(screen_save).layer(DefaultBodyLimit::max(2 << 30)))
+        .route("/api/screen/perf", get(screen_perf))
+        .route("/api/pick-folder", post(pick_folder))
+        .route("/api/mcp/setup", get(mcp_setup))
+        .route("/api/mcp/claude-desktop", post(mcp_claude_desktop))
+        .route("/mcp", post(mcp).get(|| async { (StatusCode::METHOD_NOT_ALLOWED, "Send MCP messages with POST.") }))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(axum::middleware::from_fn(local_only))
         .with_state(app)
@@ -174,6 +193,394 @@ async fn local_only(req: axum::extract::Request, next: axum::middleware::Next) -
         return (StatusCode::FORBIDDEN, "forbidden").into_response();
     }
     next.run(req).await
+}
+
+// ---------------------------------------------------------------- screen mirroring
+async fn screen_status(State(app): State<App>) -> R {
+    Ok(Json(json!(app.screen.status())))
+}
+
+#[derive(Deserialize)]
+struct ScreenStartIn {
+    driver: Option<String>,
+    udid: Option<String>,
+    #[serde(default = "yes")]
+    audio: bool,
+}
+fn yes() -> bool {
+    true
+}
+
+async fn screen_start(State(app): State<App>, Json(b): Json<ScreenStartIn>) -> R {
+    let (kind, connected) = {
+        let d = app.devices.lock().await;
+        (d.kind, d.info().map(|i| i.udid))
+    };
+    let kind = match b.driver.as_deref() {
+        Some(k) => DriverKind::parse(k).ok_or(bad("unknown driver"))?,
+        None => kind,
+    };
+    let udid = b.udid.filter(|s| !s.is_empty()).or(connected);
+    let s = app.screen.start(kind == DriverKind::Mock, udid, b.audio).await.map_err(dev)?;
+    Ok(Json(json!(s)))
+}
+
+async fn screen_stop(State(app): State<App>) -> R {
+    app.screen.stop();
+    Ok(Json(json!(app.screen.status())))
+}
+
+async fn screen_input(State(app): State<App>, Json(b): Json<Value>) -> R {
+    let input = crate::screen::parse_input(&b).map_err(bad)?;
+    app.screen.input(input).await.map_err(dev)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+async fn screen_screenshot(State(app): State<App>) -> Result<Response, ApiError> {
+    let png = app.screen.screenshot().await.map_err(dev)?;
+    Ok(([(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, "no-store")], png).into_response())
+}
+
+#[derive(Deserialize)]
+struct SaveQ {
+    name: String,
+}
+
+/// File names the Mirror tab saves: letters, digits, `-`, `_`, `.`; a picture or video.
+fn capture_name_ok(name: &str) -> bool {
+    let ext_ok = [".png", ".mp4", ".webm"].iter().any(|e| name.ends_with(e));
+    ext_ok && name.len() <= 120 && !name.starts_with('.') && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+}
+
+/// Saves a screenshot or recording from the Mirror tab to the folder chosen in Settings
+/// (the Downloads folder by default) and returns where it went.
+async fn screen_save(State(app): State<App>, Query(q): Query<SaveQ>, body: axum::body::Bytes) -> R {
+    if !capture_name_ok(&q.name) {
+        return Err(bad("Unexpected file name."));
+    }
+    let chosen = app.store.load()["settings"]["capture_folder"].as_str().map(str::trim).unwrap_or("").to_string();
+    let dir = if chosen.is_empty() {
+        dirs::download_dir().or_else(dirs::home_dir).ok_or(bad("Choose a folder for screenshots and recordings in Settings."))?
+    } else {
+        std::path::PathBuf::from(chosen)
+    };
+    tokio::fs::create_dir_all(&dir).await.map_err(|e| bad(format!("Can't use the folder {}: {e}", dir.display())))?;
+    let (stem, ext) = q.name.rsplit_once('.').unwrap_or((&q.name, ""));
+    let mut path = dir.join(&q.name);
+    for n in 1.. {
+        if !path.exists() {
+            break;
+        }
+        path = dir.join(format!("{stem}-{n}.{ext}"));
+    }
+    tokio::fs::write(&path, &body).await.map_err(|e| bad(format!("Can't save to {}: {e}", dir.display())))?;
+    Ok(Json(json!({"path": path.display().to_string()})))
+}
+
+/// The phone's CPU, memory, GPU and battery figures while mirroring (the first call starts measuring).
+async fn screen_perf(State(app): State<App>) -> R {
+    Ok(Json(app.screen.perf().map_err(dev)?))
+}
+
+/// Shows the system's folder picker on this computer; answers `{"path": null}` when cancelled.
+async fn pick_folder() -> R {
+    #[cfg(windows)]
+    {
+        // In-process, so the dialog comes up in front of the app window.
+        let picked = tokio::task::spawn_blocking(|| rfd::FileDialog::new().set_title("Folder for screenshots and recordings").pick_folder())
+            .await
+            .map_err(|e| bad(e.to_string()))?;
+        Ok(Json(json!({"path": picked.map(|p| p.display().to_string())})))
+    }
+    #[cfg(not(windows))]
+    {
+        let mut cmd = if cfg!(target_os = "macos") {
+            let mut c = std::process::Command::new("osascript");
+            c.args(["-e", "POSIX path of (choose folder with prompt \"Folder for screenshots and recordings\")"]);
+            c
+        } else {
+            let mut c = std::process::Command::new("zenity");
+            c.args(["--file-selection", "--directory", "--title=Folder for screenshots and recordings"]);
+            c
+        };
+        let out = tokio::task::spawn_blocking(move || cmd.output())
+            .await
+            .map_err(|e| bad(e.to_string()))?
+            .map_err(|_| bad("This computer has no folder picker the app can use. Type the folder's path instead."))?;
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        Ok(Json(json!({"path": (!path.is_empty()).then_some(path)})))
+    }
+}
+
+// ---------------------------------------------------------------- MCP (AI agents)
+/// The tools AI agents get, shared with the browser edition: ui/mcp-tools.json. Each tool is one
+/// or more calls to this API; `{key}` in a path comes from the arguments or the previous answer.
+fn mcp_spec() -> &'static Value {
+    static SPEC: OnceLock<Value> = OnceLock::new();
+    SPEC.get_or_init(|| Ui::get("mcp-tools.json").and_then(|f| serde_json::from_slice(&f.data).ok()).unwrap_or(json!({"tools": []})))
+}
+
+/// How AI apps reach this app: the /mcp address (from the address the page used) and the program
+/// to start for apps that only start programs (`--mcp`, which passes messages to this app).
+fn mcp_command(host: &str) -> Value {
+    let port = host.rsplit_once(':').and_then(|(_, p)| p.parse::<u16>().ok());
+    let mut args = vec!["--mcp".to_string()];
+    if let Some(p) = port.filter(|p| *p != 8766 && *p != 8765) {
+        args.extend(["--port".into(), p.to_string()]); // a port the bridge wouldn't try by itself
+    }
+    let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
+    json!({"url": format!("http://{host}/mcp"), "command": exe, "args": args, "env": {}})
+}
+
+fn host_of(headers: &axum::http::HeaderMap) -> String {
+    headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("127.0.0.1:8766").to_string()
+}
+
+async fn mcp_setup(headers: axum::http::HeaderMap) -> R {
+    let mut v = mcp_command(&host_of(&headers));
+    v["claude_desktop"] = json!(claude_desktop_configs().iter().any(|p| p.exists()));
+    Ok(Json(v))
+}
+
+/// Claude Desktop's config files: %APPDATA%\Claude (or the Microsoft Store copy's), ~/Library/Application Support/Claude, ~/.config/Claude.
+fn claude_desktop_configs() -> Vec<std::path::PathBuf> {
+    const FILE: &str = "claude_desktop_config.json";
+    if let Ok(dir) = std::env::var("SPOOFER_CLAUDE_DESKTOP_DIR") {
+        return vec![std::path::PathBuf::from(dir).join(FILE)];
+    }
+    #[cfg_attr(not(windows), allow(unused_mut))] // the Microsoft Store copy is Windows-only
+    let mut dirs: Vec<std::path::PathBuf> = dirs::config_dir().map(|d| d.join("Claude")).into_iter().collect();
+    #[cfg(windows)]
+    if let Some(packages) = dirs::data_local_dir().map(|d| d.join("Packages")) {
+        for e in std::fs::read_dir(packages).into_iter().flatten().flatten() {
+            if e.file_name().to_string_lossy().starts_with("Claude_") {
+                dirs.push(e.path().join("LocalCache").join("Roaming").join("Claude"));
+            }
+        }
+    }
+    let existing: Vec<_> = dirs.iter().filter(|d| d.exists()).map(|d| d.join(FILE)).collect();
+    if existing.is_empty() { dirs.into_iter().take(1).map(|d| d.join(FILE)).collect() } else { existing }
+}
+
+/// Adds this app to Claude Desktop's MCP servers (keeping everything else in its config).
+async fn mcp_claude_desktop(headers: axum::http::HeaderMap) -> R {
+    let cmd = mcp_command(&host_of(&headers));
+    let entry = json!({"command": cmd["command"], "args": cmd["args"]});
+    let mut written = Vec::new();
+    for path in claude_desktop_configs() {
+        let mut cfg: Value = match std::fs::read_to_string(&path) {
+            Ok(t) if !t.trim().is_empty() => serde_json::from_str(&t)
+                .map_err(|_| bad(format!("Claude Desktop's settings file can't be read, so it was left alone: {}", path.display())))?,
+            _ => json!({}),
+        };
+        if !cfg.is_object() {
+            return Err(bad(format!("Claude Desktop's settings file has an unexpected shape, so it was left alone: {}", path.display())));
+        }
+        if !cfg["mcpServers"].is_object() {
+            cfg["mcpServers"] = json!({});
+        }
+        cfg["mcpServers"]["idevbench"] = entry.clone();
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| bad(e.to_string()))?;
+        }
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_string_pretty(&cfg).unwrap_or_default()).map_err(|e| bad(e.to_string()))?;
+        std::fs::rename(&tmp, &path).map_err(|e| bad(e.to_string()))?;
+        written.push(path.display().to_string());
+    }
+    Ok(Json(json!({"paths": written})))
+}
+
+/// Model Context Protocol over HTTP (JSON answers, no sessions): `claude mcp add --transport http idevbench http://127.0.0.1:8766/mcp`.
+async fn mcp(State(app): State<App>, body: axum::body::Bytes) -> Response {
+    let reply = |id: Value, r: Value| Json(json!({"jsonrpc": "2.0", "id": id, "result": r})).into_response();
+    let error = |id: Value, code: i64, m: &str| Json(json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": m}})).into_response();
+    let Ok(msg) = serde_json::from_slice::<Value>(&body) else { return error(Value::Null, -32700, "Parse error") };
+    if !msg.is_object() {
+        return error(Value::Null, -32600, "Send one JSON-RPC message at a time");
+    }
+    let Some(id) = msg.get("id").cloned() else { return StatusCode::ACCEPTED.into_response() }; // a notification
+    let spec = mcp_spec();
+    match msg["method"].as_str().unwrap_or("") {
+        "initialize" => {
+            let asked = msg["params"]["protocolVersion"].as_str().unwrap_or("");
+            let version = if ["2025-06-18", "2025-03-26", "2024-11-05"].contains(&asked) { asked } else { "2025-06-18" };
+            reply(id, json!({"protocolVersion": version, "capabilities": {"tools": {}}, "instructions": spec["instructions"],
+                "serverInfo": {"name": "idevbench", "version": crate::updater::current_version().to_string()}}))
+        }
+        "ping" => reply(id, json!({})),
+        "tools/list" => {
+            let tools: Vec<Value> = spec["tools"].as_array().into_iter().flatten()
+                .map(|t| json!({"name": t["name"], "description": t["description"], "inputSchema": t["inputSchema"]}))
+                .collect();
+            reply(id, json!({"tools": tools}))
+        }
+        "tools/call" => {
+            let name = msg["params"]["name"].as_str().unwrap_or("");
+            let Some(tool) = spec["tools"].as_array().into_iter().flatten().find(|t| t["name"] == name) else {
+                return error(id, -32602, &format!("Unknown tool '{name}'"));
+            };
+            let args = msg["params"]["arguments"].as_object().cloned().unwrap_or_default();
+            match mcp_run(&app, tool, args).await {
+                Ok(content) => reply(id, json!({"content": content})),
+                Err(e) => reply(id, json!({"content": [{"type": "text", "text": e}], "isError": true})),
+            }
+        }
+        m => error(id, -32601, &format!("Method not found: {m}")),
+    }
+}
+
+async fn mcp_run(app: &App, tool: &Value, mut args: serde_json::Map<String, Value>) -> Result<Vec<Value>, String> {
+    use base64::Engine;
+    use tower::ServiceExt;
+    let text = |v: &Value| json!({"type": "text", "text": if let Value::String(s) = v { s.clone() } else { serde_json::to_string_pretty(v).unwrap_or_default() }});
+    let steps = tool["call"].as_array().cloned().unwrap_or_default();
+    if steps.first().and_then(|s| s[0].as_str()) == Some("GUIDE") {
+        let guide = Ui::get("mcp-guide.md").map(|f| String::from_utf8_lossy(&f.data).into_owned()).unwrap_or_default();
+        return Ok(vec![text(&Value::String(guide))]);
+    }
+    if steps.first().and_then(|s| s[0].as_str()) == Some("WAIT") {
+        let ms = args.get("ms").and_then(Value::as_u64).unwrap_or(1000).min(10_000);
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        return Ok(vec![text(&json!(format!("Waited {ms} ms.")))]);
+    }
+    let mut answers: Vec<Value> = Vec::new();
+    for (i, step) in steps.iter().enumerate() {
+        let method = step[0].as_str().unwrap_or("GET");
+        let mut path = step[1].as_str().unwrap_or("/").to_string();
+        while let (Some(a), Some(b)) = (path.find('{'), path.find('}')) {
+            let key = path[a + 1..b].to_string();
+            let v = if i == 0 { args.remove(&key) } else { None }.or_else(|| answers.last().and_then(|r| r.get(&key).cloned()));
+            let v = match v {
+                Some(Value::String(s)) => s,
+                Some(v) => v.to_string(),
+                None => return Err(format!("'{key}' is missing")),
+            };
+            path.replace_range(a..=b, &percent_encoding::utf8_percent_encode(&v, percent_encoding::NON_ALPHANUMERIC).to_string());
+        }
+        // The tool's arguments go to the first call: as the query of a GET, else merged into its body.
+        let mut body = step.get(2).and_then(Value::as_object).cloned().unwrap_or_default();
+        if i == 0 && method == "GET" && !args.is_empty() {
+            let q = url::form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(args.iter().map(|(k, v)| (k.clone(), v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))))
+                .finish();
+            path = format!("{path}?{q}");
+        } else if i == 0 {
+            body.extend(args.clone());
+        }
+        let req = axum::http::Request::builder()
+            .method(method)
+            .uri(&path)
+            .header(header::HOST, "127.0.0.1")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(if method == "GET" { Body::empty() } else { Body::from(Value::Object(body).to_string()) })
+            .map_err(|e| e.to_string())?;
+        let res = router(app.clone()).oneshot(req).await.map_err(|e| e.to_string())?;
+        let (status, kind) = (res.status(), res.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").to_string());
+        let bytes = axum::body::to_bytes(res.into_body(), 64 << 20).await.map_err(|e| e.to_string())?;
+        if kind.starts_with("image/") && status.is_success() {
+            return Ok(vec![json!({"type": "image", "data": base64::engine::general_purpose::STANDARD.encode(&bytes), "mimeType": kind})]);
+        }
+        let v: Value = serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into()));
+        if !status.is_success() {
+            return Err(v["detail"].as_str().map(String::from).unwrap_or_else(|| format!("HTTP {}: {}", status.as_u16(), v)));
+        }
+        answers.push(v);
+    }
+    let out = match tool["returns"].as_array() {
+        Some(r) => {
+            let from = &answers[r[0].as_u64().unwrap_or(0) as usize];
+            let keys = r[1].as_array().cloned().unwrap_or_default();
+            Value::Object(keys.iter().filter_map(|k| k.as_str()).map(|k| (k.to_string(), from[k].clone())).collect())
+        }
+        None => answers.pop().unwrap_or(Value::Null),
+    };
+    Ok(vec![text(&out)])
+}
+
+/// Live picture, sound and status for the Mirror tab or another program; input goes the other way.
+async fn screen_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgrade) -> Response {
+    use axum::extract::ws::Message;
+    use crate::screen::Out;
+    ws.on_upgrade(move |mut socket| async move {
+        let (mut rx, config, status) = app.screen.subscribe();
+        let status = json!({"type": "status", "status": status}).to_string();
+        if socket.send(Message::Text(status.into())).await.is_err() {
+            return;
+        }
+        if let Some(c) = config {
+            let _ = socket.send(Message::Binary(c.to_vec().into())).await;
+        }
+        let _ = app.screen.input(crate::screen::Input::KeyFrame).await;
+        // Inputs run one after another on their own task, so a long one (Siri, typing) doesn't
+        // hold up the picture; their errors come back here.
+        let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel::<crate::screen::Input>();
+        let (err_tx, mut err_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let worker = {
+            let app = app.clone();
+            tokio::spawn(async move {
+                let mut held = None;
+                loop {
+                    let Some(mut i) = held.take() else {
+                        match input_rx.recv().await {
+                            Some(i) => { held = Some(i); continue; }
+                            None => break,
+                        }
+                    };
+                    // Finger moves that piled up while the phone was busy: only the newest matters.
+                    while crate::screen::is_move(&i) {
+                        match input_rx.try_recv() {
+                            Ok(next) if crate::screen::is_move(&next) => i = next,
+                            Ok(next) => { held = Some(next); break; }
+                            Err(_) => break,
+                        }
+                    }
+                    if let Err(e) = app.screen.input(i).await {
+                        let _ = err_tx.send(e);
+                    }
+                }
+            })
+        };
+        // Frames only make sense from a keyframe on: skip until one arrives (also after falling behind).
+        let mut need_key = true;
+        loop {
+            tokio::select! {
+                Some(e) = err_rx.recv() => {
+                    if socket.send(Message::Text(json!({"type": "error", "detail": e}).to_string().into())).await.is_err() { break; }
+                }
+                out = rx.recv() => {
+                    let msg = match out {
+                        Ok(Out::Text(t)) => Message::Text(t.as_str().into()),
+                        Ok(Out::Bin(b)) => {
+                            if b[0] == 2 {
+                                if need_key && b[1] == 0 { continue; }
+                                need_key = false;
+                            }
+                            Message::Binary(b.to_vec().into())
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            need_key = true;
+                            let _ = app.screen.input(crate::screen::Input::KeyFrame).await;
+                            continue;
+                        }
+                        Err(_) => break,
+                    };
+                    if socket.send(msg).await.is_err() { break; }
+                }
+                msg = socket.recv() => match msg {
+                    Some(Ok(Message::Text(t))) => {
+                        match serde_json::from_str::<Value>(&t).map_err(|e| e.to_string()).and_then(|v| crate::screen::parse_input(&v)) {
+                            Ok(i) => { let _ = input_tx.send(i); }
+                            Err(e) => { let _ = socket.send(Message::Text(json!({"type": "error", "detail": e}).to_string().into())).await; }
+                        }
+                    }
+                    Some(Ok(_)) => {}
+                    _ => break,
+                }
+            }
+        }
+        worker.abort();
+    })
 }
 
 // ---------------------------------------------------------------- offline maps
@@ -306,11 +713,12 @@ async fn status(State(app): State<App>) -> R {
         "feature_test": FEATURE_TEST.get(),
         "driver": d.kind.key(),
         "drivers": [{"key": "pmd3", "label": "Direct", "live": true}, {"key": "mock", "label": "Simulator (no iPhone)", "live": true}],
-        "features": {"cli_driver": false, "tunnel_helper": false},
+        "features": {"cli_driver": false, "tunnel_helper": false, "multi_device": true, "wifi": true},
         "device": d.info(),
         "live": true,
         "player": app.player.status(),
         "update": app.updater.status(),
+        "mirrors": d.mirrors_json(),
     })))
 }
 
@@ -329,13 +737,61 @@ async fn devices(State(app): State<App>, Query(q): Query<DriverQ>) -> R {
 struct ConnectIn {
     driver: Option<String>,
     udid: Option<String>,
+    connection: Option<String>,
 }
 
 async fn connect(State(app): State<App>, Json(b): Json<ConnectIn>) -> R {
     let kind = DriverKind::parse(b.driver.as_deref().unwrap_or("pmd3")).ok_or(bad("unknown driver"))?;
+    let via = Via::parse(b.connection.as_deref()).ok_or(bad("unknown connection"))?;
     app.player.stop().await;
-    let info = app.devices.lock().await.connect(kind, b.udid.filter(|s| !s.is_empty())).await.map_err(dev)?;
+    let info = app.devices.lock().await.connect(kind, b.udid.filter(|s| !s.is_empty()), via).await.map_err(dev)?;
     Ok(Json(json!({"device": info})))
+}
+
+#[derive(Deserialize)]
+struct MirrorIn {
+    udid: String,
+    connection: Option<String>,
+}
+
+/// Another iPhone follows the main one: same position, same route, from now on.
+async fn mirror_add(State(app): State<App>, Json(b): Json<MirrorIn>) -> R {
+    let via = Via::parse(b.connection.as_deref()).ok_or(bad("unknown connection"))?;
+    let kind = {
+        let d = app.devices.lock().await;
+        if let Some(why) = d.mirror_refusal(&b.udid) {
+            return Err(dev(why));
+        }
+        d.kind
+    };
+    let (info, backend) = crate::device::connect_mirror(kind, b.udid, via).await.map_err(dev)?;
+    let mut d = app.devices.lock().await;
+    let m = d.attach_mirror(info, backend).await.map_err(dev)?;
+    Ok(Json(json!({"mirror": m, "mirrors": d.mirrors_json()})))
+}
+
+#[derive(Deserialize)]
+struct ClearQ {
+    clear: Option<bool>,
+}
+
+/// Stops following; by default the phone goes back to its real location.
+async fn mirror_remove(State(app): State<App>, Path(udid): Path<String>, Query(q): Query<ClearQ>) -> R {
+    let mut d = app.devices.lock().await;
+    if !d.remove_mirror(&udid, q.clear.unwrap_or(true)).await {
+        return Err(ApiError(404, "That iPhone doesn't follow the main one.".into()));
+    }
+    Ok(Json(json!({"mirrors": d.mirrors_json()})))
+}
+
+#[derive(Deserialize)]
+struct UdidIn {
+    udid: Option<String>,
+}
+
+async fn enable_wifi(State(app): State<App>, Json(b): Json<UdidIn>) -> R {
+    let m = app.devices.lock().await.enable_wifi(b.udid.filter(|s| !s.is_empty())).await.map_err(dev)?;
+    Ok(Json(json!({"message": m})))
 }
 
 async fn disconnect(State(app): State<App>) -> R {
@@ -1118,6 +1574,148 @@ mod tests {
         assert!(held.hold && !serde_json::from_value::<WaypointIn>(json!({"lat": 1.0, "lon": 2.0})).unwrap().hold);
     }
 
+    // ------------------------------------------------ several iPhones at once (mirrors)
+    const MAIN: &str = "SIMULATED-0001";
+    const SECOND: &str = "SIMULATED-0002";
+
+    fn connect_in(udid: Option<&str>, connection: Option<&str>) -> Json<ConnectIn> {
+        Json(ConnectIn { driver: Some("mock".into()), udid: udid.map(String::from), connection: connection.map(String::from) })
+    }
+    fn mirror_in(udid: &str, connection: Option<&str>) -> Json<MirrorIn> {
+        Json(MirrorIn { udid: udid.into(), connection: connection.map(String::from) })
+    }
+    async fn two_phones() -> (App, Arc<Mutex<crate::device::mirror::Shared>>) {
+        let a = app();
+        let _ = connect(State(a.clone()), connect_in(Some(MAIN), None)).await.unwrap();
+        let r = mirror_add(State(a.clone()), mirror_in(SECOND, None)).await.unwrap_or_else(|e| panic!("{}", e.1));
+        assert_eq!(r.0["mirror"]["name"], "Simulated iPhone 2");
+        assert_eq!(r.0["mirror"]["state"], "ok");
+        let shared = a.devices.lock().await.mirrors[0].shared.clone();
+        (a, shared)
+    }
+    async fn until(f: impl Fn() -> bool) -> bool {
+        for _ in 0..300 {
+            if f() {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        false
+    }
+    fn here(lat: f64, lon: f64) -> Json<LatLonIn> {
+        Json(LatLonIn { lat, lon })
+    }
+
+    #[tokio::test]
+    async fn mirror_follows_teleport_playback_and_stop() {
+        let (a, m) = two_phones().await;
+        let st = status(State(a.clone())).await.unwrap().0;
+        assert_eq!(st["device"]["udid"], MAIN);
+        assert_eq!(st["mirrors"][0]["udid"], SECOND);
+        assert!(st["features"]["multi_device"].as_bool().unwrap() && st["features"]["wifi"].as_bool().unwrap());
+        let _ = set_location(State(a.clone()), here(51.5, -0.12)).await.unwrap();
+        assert!(until(|| m.lock().unwrap().location == Some((51.5, -0.12))).await);
+        // a route played on the main phone moves the mirror along it too
+        let start = (51.5, -0.12);
+        let end = geo::destination(start, 90.0, 300.0);
+        let s = crate::profile::ProfileSettings { default_cruise_kmh: 36.0, accel_ms2: 2.0, decel_ms2: 2.0, ..Default::default() };
+        let w = [crate::profile::Waypoint::at(start), crate::profile::Waypoint::at(end)];
+        let tl = Arc::new(crate::profile::build_timeline(&w, &[crate::profile::Leg::new(vec![start, end])], &s).unwrap());
+        a.player.load(tl, "two".into()).await;
+        a.player.set_options(Some(10.0), None, None, Some(0.2), None).unwrap();
+        a.player.play().await.unwrap();
+        assert!(until(|| a.player.status()["state"] == "finished").await);
+        assert!(until(|| m.lock().unwrap().location.is_some_and(|p| geo::haversine_m(p, end) < 1.0)).await);
+        let main_end = a.devices.lock().await.mock.location.unwrap();
+        assert!(geo::haversine_m(main_end, end) < 1.0);
+        assert!(m.lock().unwrap().history > 5, "it moved along the route, not just to the end");
+        // Stop spoofing clears every phone
+        let _ = clear_location(State(a.clone())).await.unwrap();
+        assert!(until(|| m.lock().unwrap().location.is_none()).await);
+        assert!(a.devices.lock().await.mock.location.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_slow_mirror_never_holds_up_the_main_phone() {
+        let (a, m) = two_phones().await;
+        m.lock().unwrap().delay_ms = 300;
+        let t0 = std::time::Instant::now();
+        for i in 0..6 {
+            let _ = set_location(State(a.clone()), here(51.5 + i as f64 * 1e-4, -0.12)).await.unwrap();
+        }
+        assert!(t0.elapsed() < std::time::Duration::from_millis(1200), "six sends to a 0.3 s phone would take 1.8 s");
+        let last = (51.5 + 5e-4, -0.12);
+        let main = a.devices.lock().await.mock.location.unwrap();
+        assert!((main.0 - last.0).abs() < 1e-9);
+        // the mirror skips the positions it fell behind on and ends where the main phone is
+        assert!(until(|| m.lock().unwrap().location.is_some_and(|p| (p.0 - last.0).abs() < 1e-9)).await);
+        assert!(m.lock().unwrap().sent < 6);
+    }
+
+    #[tokio::test]
+    async fn a_lost_mirror_is_marked_and_the_rest_keeps_going() {
+        let (a, m) = two_phones().await;
+        m.lock().unwrap().fail = true;
+        let _ = set_location(State(a.clone()), here(51.5, -0.12)).await.unwrap();
+        assert!(until(|| m.lock().unwrap().error.is_some()).await);
+        let st = status(State(a.clone())).await.unwrap().0;
+        assert_eq!(st["mirrors"][0]["state"], "lost");
+        assert!(st["mirrors"][0]["error"].as_str().unwrap().contains("Lost the connection"));
+        let _ = set_location(State(a.clone()), here(51.6, -0.12)).await.unwrap();
+        assert_eq!(a.devices.lock().await.mock.location, Some((51.6, -0.12)));
+        let r = mirror_remove(State(a.clone()), Path(SECOND.into()), Query(ClearQ { clear: None })).await.unwrap();
+        assert_eq!(r.0["mirrors"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn removing_a_mirror_sends_it_back_to_its_real_location() {
+        let (a, m) = two_phones().await;
+        let _ = set_location(State(a.clone()), here(51.5, -0.12)).await.unwrap();
+        assert!(until(|| m.lock().unwrap().location.is_some()).await);
+        let _ = mirror_remove(State(a.clone()), Path(SECOND.into()), Query(ClearQ { clear: None })).await.unwrap();
+        assert_eq!(m.lock().unwrap().location, None);
+        assert_eq!(a.devices.lock().await.mock.location, Some((51.5, -0.12)), "the main phone keeps its position");
+        let e = mirror_remove(State(a.clone()), Path(SECOND.into()), Query(ClearQ { clear: None })).await.unwrap_err();
+        assert_eq!(e.0, 404);
+    }
+
+    #[tokio::test]
+    async fn new_mirror_catches_up_and_rules() {
+        let a = app();
+        assert_eq!(mirror_add(State(a.clone()), mirror_in(SECOND, None)).await.unwrap_err().0, 409, "no main phone yet");
+        let _ = connect(State(a.clone()), connect_in(Some(MAIN), None)).await.unwrap();
+        let _ = set_location(State(a.clone()), here(51.5, -0.12)).await.unwrap();
+        assert_eq!(mirror_add(State(a.clone()), mirror_in(MAIN, None)).await.unwrap_err().0, 409, "that's the main phone");
+        let _ = mirror_add(State(a.clone()), mirror_in(SECOND, Some("usb"))).await.unwrap();
+        let m = a.devices.lock().await.mirrors[0].shared.clone();
+        assert!(until(|| m.lock().unwrap().location == Some((51.5, -0.12))).await, "caught up at once");
+        assert_eq!(mirror_add(State(a.clone()), mirror_in(SECOND, None)).await.unwrap_err().0, 409, "already following");
+        assert_eq!(mirror_add(State(a.clone()), mirror_in("SIMULATED-9999", None)).await.unwrap_err().0, 409);
+        assert_eq!(mirror_add(State(a.clone()), mirror_in(SECOND, Some("bluetooth"))).await.unwrap_err().0, 400);
+        // connecting the main phone to the mirrored one makes it the main phone instead
+        let _ = connect(State(a.clone()), connect_in(Some(SECOND), None)).await.unwrap();
+        let st = status(State(a.clone())).await.unwrap().0;
+        assert_eq!(st["device"]["udid"], SECOND);
+        assert_eq!(st["mirrors"], json!([]));
+        // disconnecting ends the mirrors too
+        let _ = mirror_add(State(a.clone()), mirror_in(MAIN, None)).await.unwrap();
+        let _ = disconnect(State(a.clone())).await.unwrap();
+        assert_eq!(status(State(a.clone())).await.unwrap().0["mirrors"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn wifi_tool_and_connection_field() {
+        let a = app();
+        let _ = connect(State(a.clone()), connect_in(None, Some("network"))).await.unwrap();
+        let r = enable_wifi(State(a.clone()), Json(UdidIn { udid: None })).await.unwrap();
+        assert!(r.0["message"].as_str().unwrap().starts_with("Simulator"));
+        assert_eq!(connect(State(a.clone()), connect_in(None, Some("carrier-pigeon"))).await.unwrap_err().0, 400);
+        assert_eq!(Via::parse(None), Some(Via::Auto));
+        assert_eq!(Via::parse(Some("network")), Some(Via::Network));
+        let list = a.devices.lock().await.list_devices(DriverKind::Mock).await.unwrap();
+        assert_eq!(list.iter().map(|d| d["udid"].as_str().unwrap()).collect::<Vec<_>>(), [MAIN, SECOND]);
+    }
+
     #[tokio::test]
     async fn bad_requests_are_rejected_before_routing() {
         let mut r = route();
@@ -1128,5 +1726,100 @@ mod tests {
         let quiet: Progress = Arc::new(|_, _, _| {});
         let e = build_route_core(app(), r, quiet).await.unwrap_err();
         assert_eq!((e.0, e.1.as_str()), (400, "Expected 2 legs, got 1"));
+    }
+
+    #[tokio::test]
+    async fn screen_routes_with_the_simulator() {
+        let a = app();
+        let e = screen_input(State(a.clone()), Json(json!({"t": "tap", "x": 0.5, "y": 0.5}))).await.unwrap_err();
+        assert_eq!(e.0, 409);
+        let start = ScreenStartIn { driver: Some("mock".into()), udid: None, audio: true };
+        let s = screen_start(State(a.clone()), Json(start)).await.unwrap_or_else(|e| panic!("{}", e.1)).0;
+        assert_eq!((s["state"].as_str(), s["simulated"].as_bool()), (Some("on"), Some(true)));
+        assert!(screen_input(State(a.clone()), Json(json!({"t": "text", "text": "hi"}))).await.is_ok());
+        assert_eq!(screen_input(State(a.clone()), Json(json!({"t": "tap", "x": 2, "y": 0}))).await.unwrap_err().0, 400);
+        assert_eq!(screen_screenshot(State(a.clone())).await.unwrap_err().0, 409);
+        assert_eq!(screen_stop(State(a.clone())).await.unwrap_or_else(|e| panic!("{}", e.1)).0["state"], "off");
+    }
+
+    #[tokio::test]
+    async fn mcp_drives_location_and_mirroring() {
+        let a = app();
+        let rpc = |method: &str, params: Value| {
+            let a = a.clone();
+            let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).to_string();
+            async move {
+                let r = mcp(State(a), axum::body::Bytes::from(body)).await;
+                serde_json::from_slice::<Value>(&axum::body::to_bytes(r.into_body(), 1 << 24).await.unwrap()).unwrap()
+            }
+        };
+        let call = |name: &str, args: Value| rpc("tools/call", json!({"name": name, "arguments": args}));
+        let init = rpc("initialize", json!({"protocolVersion": "2025-03-26"})).await;
+        assert_eq!((init["result"]["protocolVersion"].as_str(), init["result"]["serverInfo"]["name"].as_str()), (Some("2025-03-26"), Some("idevbench")));
+        let tools = rpc("tools/list", json!({})).await["result"]["tools"].as_array().unwrap().len();
+        assert!(tools >= 30, "{tools}");
+        let note = mcp(State(a.clone()), axum::body::Bytes::from(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)).await;
+        assert_eq!(note.status(), StatusCode::ACCEPTED);
+        assert_eq!(rpc("nope", json!({})).await["error"]["code"], -32601);
+
+        assert!(call("tap", json!({"x": 0.5, "y": 0.5})).await["result"]["isError"].as_bool().unwrap());
+        for (name, args) in [
+            ("connect_device", json!({"driver": "mock"})),
+            ("set_location", json!({"lat": 48.8584, "lon": 2.2945})),
+            ("start_mirroring", json!({"driver": "mock"})),
+            ("tap", json!({"x": 0.5, "y": 0.9})),
+            ("gesture", json!({"name": "app_switcher"})),
+            ("press_key", json!({"usage": 4, "command": true})),
+            ("phone_performance", json!({})),
+            ("wait", json!({"ms": 1})),
+        ] {
+            let r = call(name, args).await;
+            assert!(r["result"]["isError"].is_null(), "{name}: {r}");
+        }
+        assert!(a.screen.sim_inputs().contains(&crate::screen::Input::Gesture("app_switcher")));
+        let route = call("drive_route", json!({"waypoints": [{"lat": 51.5, "lon": -0.12}, {"lat": 51.501, "lon": -0.12}], "legs": [{"mode": "straight"}]})).await;
+        let text: Value = serde_json::from_str(route["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert!(text["id"].is_string() && text["summary"].is_object(), "{route}");
+        assert_eq!(a.player.status()["state"], "playing");
+        let fav = call("list_favourites", json!({})).await;
+        assert!(!fav["result"]["content"][0]["text"].as_str().unwrap().contains("settings"));
+        let shot = call("screenshot", json!({})).await;
+        assert!(shot["result"]["isError"].as_bool().unwrap());
+    }
+
+    #[tokio::test]
+    async fn adds_itself_to_claude_desktop_keeping_other_settings() {
+        let dir = std::env::temp_dir().join(format!("idevbench-claude-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("claude_desktop_config.json");
+        std::fs::write(&file, r#"{"theme": "dark", "mcpServers": {"other": {"command": "x"}}}"#).unwrap();
+        std::env::set_var("SPOOFER_CLAUDE_DESKTOP_DIR", &dir);
+        let mut h = axum::http::HeaderMap::new();
+        h.insert(header::HOST, "127.0.0.1:9123".parse().unwrap());
+        let setup = mcp_setup(h.clone()).await.unwrap_or_else(|e| panic!("{}", e.1)).0;
+        assert_eq!(setup["url"], "http://127.0.0.1:9123/mcp");
+        assert_eq!(setup["args"], json!(["--mcp", "--port", "9123"]));
+        let _ = mcp_claude_desktop(h).await.unwrap_or_else(|e| panic!("{}", e.1));
+        let cfg: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        std::env::remove_var("SPOOFER_CLAUDE_DESKTOP_DIR");
+        assert_eq!((cfg["theme"].as_str(), cfg["mcpServers"]["other"]["command"].as_str()), (Some("dark"), Some("x")));
+        assert_eq!(cfg["mcpServers"]["idevbench"]["args"][0], "--mcp");
+        let guide = mcp_run(&app(), &json!({"call": [["GUIDE"]]}), Default::default()).await.unwrap();
+        assert!(guide[0]["text"].as_str().unwrap().contains("passcode"));
+    }
+
+    #[tokio::test]
+    async fn screen_captures_go_to_the_chosen_folder() {
+        let a = app();
+        let dir = std::env::temp_dir().join(format!("idevbench-captures-{}", rand::random::<u64>()));
+        a.store.save(&json!({"settings": {"capture_folder": dir.to_string_lossy()}})).unwrap();
+        let save = |name: &str| screen_save(State(a.clone()), Query(SaveQ { name: name.into() }), axum::body::Bytes::from_static(b"png"));
+        let first = save("shot.png").await.unwrap_or_else(|e| panic!("{}", e.1)).0;
+        let second = save("shot.png").await.unwrap_or_else(|e| panic!("{}", e.1)).0;
+        assert_eq!(std::fs::read(first["path"].as_str().unwrap()).unwrap(), b"png");
+        assert!(second["path"].as_str().unwrap().ends_with("shot-1.png"));
+        for bad_name in ["../x.png", "x.exe", ".png", "a/b.png"] {
+            assert_eq!(save(bad_name).await.unwrap_err().0, 400, "{bad_name}");
+        }
     }
 }

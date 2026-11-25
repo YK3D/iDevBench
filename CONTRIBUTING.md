@@ -48,6 +48,7 @@ Set `SPOOFER_DATA_DIR` to an empty folder first if you don't want the experiment
 | `standalone/` | Standalone app (Rust): local server, iPhone driver, routing, speed engine, native window |
 | `browser/` | Browser edition (Python, FastAPI) |
 | `ui/` | The interface both editions serve (HTML, CSS, JavaScript; no build step) |
+| `plugins/idevbench/`, `.claude-plugin/marketplace.json` | The Claude Code plugin (MCP server at `http://127.0.0.1:8766/mcp` plus the guide as a skill). The MCP server itself is built into both editions (`/mcp`, `--mcp`); its tools are listed once in `ui/mcp-tools.json` as calls to the local API, and `ui/mcp-guide.md` is the guide (the plugin's `SKILL.md` must match it; a test checks). Check the plugin with `claude plugin validate ./plugins/idevbench --strict` |
 | `assets/icon/` | Icon artwork; `make_icons.py` regenerates every icon file from `source.jpg` |
 | `docs/screenshots/` | README screenshots; `capture.js` makes them, and `website/scripts/record-clips.cjs` makes the animation (`demo.webp`) with the website's clips |
 | `website/` | The showcase website with an in-browser demo (Vite + React, hosted on Vercel); see `website/README.md` |

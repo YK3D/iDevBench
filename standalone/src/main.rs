@@ -12,6 +12,7 @@ mod feature_tests;
 mod geo;
 mod gmaps_links;
 mod gpx;
+mod screen;
 mod offline;
 mod player;
 mod profile;
@@ -56,6 +57,46 @@ fn parse_args() -> Args {
     a
 }
 
+/// `--mcp`: for AI apps that start MCP servers as programs (Claude Desktop and others). Passes
+/// each message from stdin to the running app's /mcp and prints the answer; the app must be open.
+fn mcp_bridge(port: Option<u16>) {
+    use std::io::{BufRead, Write};
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
+    let client = reqwest::Client::builder().no_proxy().build().expect("http client");
+    // The standalone app's port, then the browser edition's.
+    let urls: Vec<String> = match port {
+        Some(p) => vec![format!("http://127.0.0.1:{p}/mcp")],
+        None => vec![format!("http://127.0.0.1:{DEFAULT_PORT}/mcp"), "http://127.0.0.1:8765/mcp".into()],
+    };
+    let mut out = std::io::stdout();
+    for line in std::io::stdin().lock().lines() {
+        let Ok(line) = line else { break };
+        if line.trim().is_empty() {
+            continue;
+        }
+        let answer = rt.block_on(async {
+            for url in &urls {
+                let sent = client.post(url).header("Content-Type", "application/json").header("Accept", "application/json, text/event-stream");
+                if let Ok(r) = sent.body(line.clone()).send().await {
+                    return Some(r.text().await.unwrap_or_default());
+                }
+            }
+            None
+        });
+        let text = match answer {
+            Some(t) => t,
+            None => match serde_json::from_str::<serde_json::Value>(&line).ok().and_then(|m| m.get("id").cloned()) {
+                Some(id) => serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": "iDevBench is not running. Open it, then try again."}}).to_string(),
+                None => String::new(),
+            },
+        };
+        if !text.trim().is_empty() {
+            let _ = writeln!(out, "{}", text.trim());
+            let _ = out.flush();
+        }
+    }
+}
+
 fn wait_for_pid_exit(pid: u32) {
     // The old process frees the port and its file lock when it exits; give it up to 30 s.
     for _ in 0..150 {
@@ -72,6 +113,9 @@ fn main() {
     if args.version {
         println!("{}", updater::current_version());
         return;
+    }
+    if args.raw.iter().any(|a| a == "--mcp") {
+        return mcp_bridge(args.raw.iter().any(|a| a == "--port").then_some(args.port));
     }
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,idevice=warn".into()))

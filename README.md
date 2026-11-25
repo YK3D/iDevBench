@@ -3,7 +3,7 @@
 <h1 align="center">iDevBench</h1>
 
 <p align="center"><b>A free Windows toolkit for working with your iPhone over USB, with no jailbreak and no Mac.</b><br>
-Set the iPhone's GPS location: teleport anywhere, drive routes that follow real roads at realistic speeds (with bends, roundabouts and braking), replay GPX files, or walk around live with the keyboard. No accounts, no telemetry.</p>
+Set the iPhone's GPS location: teleport anywhere, drive routes that follow real roads at realistic speeds (with bends, roundabouts and braking), replay GPX files, or walk around live with the keyboard. Mirror the iPhone's screen and sound on your PC, control it with the mouse and keyboard, and record it. Other programs can do the same through a local API. No accounts, no telemetry.</p>
 
 <p align="center"><sub>iDevBench was previously called <i>Location Spoofer</i>. Updating keeps your settings, favourites and routes.</sub></p>
 
@@ -38,8 +38,9 @@ Most people should use the **standalone app**. The browser edition exists for iP
 | Size and start-up | Under 20 MB, starts instantly | About 80 MB, 10–20 s to start |
 | iOS 17.4 and newer, iOS 16 and older | ✅ | ✅ |
 | iOS 17.0–17.3 | ❌ | ✅ (needs administrator permission once per session) |
+| Screen mirroring and control (iOS 27 and newer) | ✅ with sound | ✅, sound only on a Mac |
 
-Both have the same look and features, and both update themselves. The download files keep their original names (`LocationSpooferStandalone.exe` and `LocationSpooferBrowser.exe`) so copies that are already installed keep updating.
+Both have the same look and features (apart from the differences above), and both update themselves. The download files keep their original names (`LocationSpooferStandalone.exe` and `LocationSpooferBrowser.exe`) so copies that are already installed keep updating.
 
 ## Getting started
 
@@ -57,7 +58,7 @@ Both have the same look and features, and both update themselves. The download f
 <summary><b>Requirements</b></summary>
 
 * Windows 10 or 11 (64-bit) with the Microsoft Edge WebView2 Runtime, which is built into Windows 11 and installed on up-to-date Windows 10.
-* An iPhone or iPad with Developer Mode.
+* An iPhone or iPad with Developer Mode. Screen mirroring needs iOS 27 or newer.
 * A USB cable.
 * An internet connection for maps and road routing.
 
@@ -76,6 +77,11 @@ Both have the same look and features, and both update themselves. The download f
 | "My real location" says Windows blocked it | Turn on *Settings › Privacy & security › Location* and "Let desktop apps access your location" (the message has a button for it) |
 | Location stays wrong after you finish | Press **Stop spoofing**, or restart the iPhone |
 | The app shows an older version number | An older copy is still running in the background. Close every iDevBench window, end any **location-spoofer** or **LocationSpooferStandalone** task in Task Manager, then open the new file |
+| Mirroring: "won't share its screen while an app uses the camera or microphone" | Close Camera, Voice Memos or any app that is recording, then press Start mirroring again |
+| Mirroring: "can't decode the iPhone's video (HEVC)" | Update the graphics driver, or install *HEVC Video Extensions* from the Microsoft Store |
+| Mirroring: the picture stays black | Unlock the iPhone. Some apps hide their content from screen mirroring, for example video streaming apps |
+| Mirroring: the picture freezes | It restarts by itself after a few seconds; press **Restart stream** next to the screen to do it at once |
+| Mirroring: the picture is sideways | Press **Rotate** next to the screen |
 | Something else | [Open an issue](https://github.com/YK3D/iPhone-location-spoofer/issues/new) and describe what happened, with the app's version (*Settings › About*) |
 
 </details>
@@ -124,6 +130,20 @@ Both have the same look and features, and both update themselves. The download f
 * **GPX files** (a common file format for recorded trips): drop a file in to replay it with its own timing, re-time it, reverse it, or edit it as checkpoints. Routes can be exported as GPX.
 * **Playback:** play, pause, seek, 0.25×–30× speed, loop or back-and-forth with an optional number of laps, optional GPS jitter, and a live speed and heading display on the map.
 * **Joystick:** walk or drive live with W A S D, the arrow keys or the on-screen pad.
+
+</details>
+
+<details>
+<summary><b>Screen mirroring and control (Mirroring section)</b></summary>
+
+* **See the iPhone's screen** live in its own section of the app (switch between *Location* and *Mirroring* at the top), over the USB cable. Needs iOS 27 or newer. The picture turns with the phone.
+* **Control it:** click to tap, drag to swipe, scroll with the mouse wheel, Ctrl + wheel (or a trackpad pinch) to pinch and zoom, right-click for Home. Buttons next to the screen for Home, Lock, Volume, Mute and Siri, and for the gestures: app switcher, Control Centre, notifications and Back. Over the screen the pointer is a small dot that dips when you click, and a swipe leaves a faint trail.
+* **Type:** click the screen and type on your keyboard (Ctrl works as the iPhone's ⌘, so Ctrl+C and Ctrl+V copy and paste on the phone).
+* **Sound:** hear what the iPhone plays (standalone app).
+* **Screenshots and recordings:** save a picture, or record the screen with its sound as a video file, to your Downloads folder or a folder you choose in *Settings › Mirroring*.
+* **Stats** shows the stream's frame rate, data rate and delay, and the iPhone's CPU, memory, GPU, battery and temperature; **Restart stream** restarts a frozen picture (the app also does this by itself).
+* **For developers:** other programs on your computer can watch the screen, tap, type and set the location through the [local API](docs/API.md).
+* **AI agents:** connect Claude, Codex, Cursor or another AI app to iDevBench and the agent can use the phone: see the screen, tap and type, set the location and drive routes. *Settings › AI agents* has one prompt to paste into the agent, and a button for Claude Desktop. There is also a [Claude Code plugin](docs/API.md#ai-agents-mcp).
 
 </details>
 
