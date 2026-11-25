@@ -29,4 +29,4 @@ Ideas being considered for future versions. None of them is promised; suggestion
 - Search history and recent places.
 - More languages for the interface.
 - Portable mode (settings stored next to the `.exe`).
-- Control the app from scripts, and record and replay test sessions.
+- Record and replay test sessions (scripts can already control the app through the [local API](docs/API.md)).

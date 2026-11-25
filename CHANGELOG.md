@@ -8,6 +8,9 @@ Test builds from the `dev` branch are marked as pre-releases.
 ## Unreleased (dev)
 
 ### New
+- **Screen mirroring (Mirror tab, iOS 27 and newer):** the iPhone's screen in the app over the USB cable. Click to tap, drag to swipe, right-click for Home, buttons for Home, Lock, Volume and Siri, and typing from your keyboard (Ctrl works as ⌘). The standalone app also plays the iPhone's sound. Save screenshots, or record the screen with its sound as a video.
+- **Local API:** other programs on your computer can set the location, watch the screen, tap, swipe and type through the app while it is open (websites can't). See [docs/API.md](docs/API.md).
+- **iOS 27:** the standalone app now tries to mount the developer image itself instead of asking for Xcode first.
 - **New name: Sideport.** Location Spoofer is now called Sideport, because it is growing into a toolkit for working with your iPhone from Windows, not only for its location. Nothing else changes: updating keeps your settings, favourites, routes and offline maps, and the download files keep their names so installed copies keep updating.
 - **Website:** [iphone-spoofer.vercel.app](https://iphone-spoofer.vercel.app) shows what the app does, has the downloads, and lets you try a small version of it in your browser. The Terms of Use, Privacy Policy and licences now open there (setup guide and *Settings › About*).
 - **Offline maps:** *Settings › Offline maps* saves the area on screen (up to 3,000 map tiles, about a city, per download; as many areas as you like), so the map works without internet. Saved areas can be shown on the map or deleted.

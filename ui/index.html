@@ -69,6 +69,8 @@
     <symbol id="i-offline" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.4 9.1 4.7 4.7 0 0 0 7 18.5z"/><path d="M12 9.5v6M9.5 13l2.5 2.5 2.5-2.5"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></symbol>
     <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M19.5 4.5L11 13"/><path d="M18 14v4a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 18V8a1.5 1.5 0 0 1 1.5-1.5h4"/></symbol>
+    <symbol id="i-screen" viewBox="0 0 24 24"><rect x="6.5" y="2.8" width="11" height="18.4" rx="2.4"/><rect x="8.6" y="5.6" width="6.8" height="10.6" rx=".6"/><path d="M10.8 18.6h2.4"/></symbol>
+    <symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle fill="currentColor" stroke="none" cx="12" cy="12" r="3.6"/></symbol>
     <symbol id="i-start" viewBox="0 0 24 24"><path d="M5 20V4M5 4.5h10.5l-2.5 4 2.5 4H5"/></symbol>
   </defs>
 </svg>
@@ -145,6 +147,7 @@
       <button data-tab="gpx" role="tab"><svg class="ico"><use href="#i-file"/></svg><span>GPX</span></button>
       <button data-tab="joystick" role="tab"><svg class="ico"><use href="#i-joystick"/></svg><span>Joystick</span></button>
       <button data-tab="saved" role="tab"><svg class="ico"><use href="#i-star"/></svg><span>Saved</span></button>
+      <button data-tab="mirror" role="tab"><svg class="ico"><use href="#i-screen"/></svg><span>Mirror</span></button>
     </nav>
 
     <!-- Teleport -->
@@ -340,6 +343,31 @@
       </details>
     </div>
 
+    <!-- Mirror -->
+    <div class="tab-panel" id="tab-mirror" hidden>
+      <details class="section" id="sec-mirror" open>
+        <summary><svg class="ico sec-ico"><use href="#i-screen"/></svg><span class="sec-title">Screen mirroring</span></summary>
+        <div class="sec-body">
+          <p class="hint">Shows the iPhone's screen here. Click to tap, drag to swipe, right-click for Home. Needs iOS 27 or newer, Developer Mode and the cable; uses the device chosen above.</p>
+          <label class="check"><input id="mirror-audio" type="checkbox" checked> Play the iPhone's sound</label>
+          <button id="btn-mirror" class="primary">Start mirroring</button>
+          <div id="mirror-status" class="status">Not mirroring</div>
+          <div class="btn-row mirror-buttons" id="mirror-buttons">
+            <button data-button="home" title="Home">Home</button><button data-button="lock" title="Lock / wake">Lock</button><button data-button="volume-down" title="Volume down" aria-label="Volume down">Vol −</button><button data-button="volume-up" title="Volume up" aria-label="Volume up">Vol +</button><button data-button="siri" title="Hold for Siri">Siri</button>
+          </div>
+          <div class="btn-row">
+            <button id="btn-mirror-shot"><svg class="ico"><use href="#i-download"/></svg>Screenshot</button>
+            <button id="btn-mirror-rec"><svg class="ico"><use href="#i-rec"/></svg><span>Record</span></button>
+          </div>
+          <div class="field-row">
+            <label class="grow">Type on the iPhone <input id="mirror-text" placeholder="Text to type (English keyboard)"></label>
+            <button id="btn-mirror-type">Send</button>
+          </div>
+          <p class="hint">Or click the screen and type: your keys go to the iPhone until you press Esc or click outside it. Ctrl acts as the iPhone's ⌘ (Ctrl+C copies, Ctrl+V pastes on the phone).</p>
+        </div>
+      </details>
+    </div>
+
     <!-- Saved -->
     <div class="tab-panel" id="tab-saved" hidden>
       <details class="section" id="sec-favs" open>
@@ -445,6 +473,10 @@
       <span class="muted">km/h</span>
     </div>
   </main>
+  <section id="mirror-view" aria-label="iPhone screen" hidden>
+    <canvas id="mirror-canvas" tabindex="0" aria-label="The iPhone's screen. Click to tap; type to send keys."></canvas>
+    <p id="mirror-empty" class="mirror-empty">Press Start mirroring to see the iPhone's screen here.</p>
+  </section>
 </div>
 
 <!-- ============ SETTINGS ============ -->

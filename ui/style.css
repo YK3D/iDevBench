@@ -255,7 +255,7 @@ details.sub[open] > summary { margin-bottom: 6px; }
 .stack { display: flex; flex-direction: column; gap: var(--gap); }
 
 /* ---------- tabs: a segmented control pinned under the title bar ---------- */
-.tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; position: sticky; top: var(--header-h); z-index: 6;
+.tabs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; position: sticky; top: var(--header-h); z-index: 6;
   margin: var(--card-gap) var(--card-inset) 0; padding: 3px; border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--side-bg) 70%, var(--panel)); border: 1px solid var(--divider);
   box-shadow: 0 4px 12px -6px rgba(0, 0, 0, .35); }
@@ -866,3 +866,17 @@ p.small.warn { color: var(--warn-text); }
 .list li a.icon-link { padding: 0; }
 #dev-access > summary .ico { width: 13px; height: 13px; }
 #feature-test-list, #offline-areas { max-height: 240px; overflow-y: auto; }
+
+/* ---------- Mirror tab: the iPhone's screen takes the map's place ---------- */
+#mirror-view { flex: 1; min-height: 300px; position: relative; display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: var(--bg); overflow: hidden; }
+#mirror-view[hidden] { display: none; }
+body.mirroring #map { display: none; }
+#mirror-canvas { display: block; border-radius: 18px; background: #000; box-shadow: 0 10px 40px -12px rgba(0, 0, 0, .6);
+  touch-action: none; cursor: pointer; outline: none; }
+#mirror-canvas:focus-visible, #mirror-canvas.typing { box-shadow: 0 0 0 3px var(--accent), 0 10px 40px -12px rgba(0, 0, 0, .6); }
+#mirror-canvas:not([width]) { display: none; }
+.mirror-empty { position: absolute; max-width: 320px; margin: 0; color: var(--muted); text-align: center; font-size: 13px; }
+.mirror-buttons button { padding: 0 4px; font-size: 12px; }
+#btn-mirror-rec.recording { color: var(--danger); border-color: currentColor; }
+@media (max-width: 760px) { #mirror-view { height: 70vh; flex: none; } }
