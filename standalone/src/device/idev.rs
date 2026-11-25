@@ -63,7 +63,7 @@ async fn usbmux() -> Result<UsbmuxdConnection, String> {
     addr().connect(1).await.map_err(|e| friendly(&e))
 }
 
-async fn find_device(udid: Option<&str>) -> Result<(UsbmuxdProvider, String), String> {
+pub(crate) async fn find_device(udid: Option<&str>) -> Result<(UsbmuxdProvider, String), String> {
     let mut mux = usbmux().await?;
     let devices = mux.get_devices().await.map_err(|e| friendly(&e))?;
     let dev = match udid {
@@ -108,7 +108,7 @@ pub async fn list_devices() -> Result<Vec<serde_json::Value>, String> {
 }
 
 /// Pair if this computer has no pairing record for the phone yet (shows "Trust This Computer?").
-async fn ensure_paired(provider: &UsbmuxdProvider) -> Result<(), String> {
+pub(crate) async fn ensure_paired(provider: &UsbmuxdProvider) -> Result<(), String> {
     if provider.get_pairing_file().await.is_ok() {
         return Ok(());
     }
@@ -133,7 +133,7 @@ fn random_uuid() -> String {
     )
 }
 
-fn major(v: &str) -> u32 {
+pub(crate) fn major(v: &str) -> u32 {
     v.split('.').next().and_then(|x| x.parse().ok()).unwrap_or(0)
 }
 
@@ -158,17 +158,12 @@ async fn download(path: &str) -> Result<Vec<u8>, String> {
 }
 
 /// Mount the Developer Disk Image if it is not mounted yet. Returns a note for the user.
-async fn ensure_ddi(provider: &UsbmuxdProvider, version: &str, chip_id: Option<u64>) -> Result<Option<String>, String> {
+pub(crate) async fn ensure_ddi(provider: &UsbmuxdProvider, version: &str, chip_id: Option<u64>) -> Result<Option<String>, String> {
     let mut mounter = ImageMounter::connect(provider).await.map_err(|e| friendly(&e))?;
     let personalized = major(version) >= 17;
     let kind = if personalized { "Personalized" } else { "Developer" };
     if mounter.lookup_image(kind).await.map(|s| !s.is_empty()).unwrap_or(false) {
         return Ok(None);
-    }
-    if major(version) >= 27 {
-        return Err("iOS 27+ installs the developer image as a cryptex, which this version cannot do yet. \
-                    Mount it once with Xcode or pymobiledevice3, then connect again."
-            .into());
     }
     if personalized {
         let image = download("PersonalizedImages/Xcode_iOS_DDI_Personalized/Image.dmg").await?;
@@ -178,7 +173,11 @@ async fn ensure_ddi(provider: &UsbmuxdProvider, version: &str, chip_id: Option<u
         mounter
             .mount_personalized(provider, image, trust, &manifest, None, chip)
             .await
-            .map_err(|e| format!("Could not mount the Developer Disk Image: {}", friendly(&e)))?;
+            .map_err(|e| {
+                // iPhones newer than the image only take it as a cryptex, which this app can't install yet.
+                let hint = if major(version) >= 27 { " If this keeps failing, mount it once with Xcode or the browser edition." } else { "" };
+                format!("Could not mount the Developer Disk Image: {}.{hint}", friendly(&e))
+            })?;
     } else {
         let mut parts: Vec<&str> = version.split('.').collect();
         parts.truncate(2);

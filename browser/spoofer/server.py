@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -11,7 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Awaitable, Callable, Literal, Optional
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -24,6 +25,7 @@ from .device.cli import CliDriver
 from .device.mock import MockDriver
 from .device.pmd3 import Pmd3Driver
 from .gpx_io import parse_gpx, safe_filename, write_gpx
+from .mirror import Mirror, MirrorError, parse_input
 from .player import Player
 from .profile import (
     Leg,
@@ -62,6 +64,7 @@ class AppState:
         self.updater = Updater()  # replaced by __main__ with the real one; disabled from source
         self.offline = Offline(data_dir())
         self.feature_tests = FeatureTests(data_dir())
+        self.mirror = Mirror()
 
     @property
     def driver(self) -> DeviceDriver:
@@ -93,6 +96,7 @@ async def lifespan(app: FastAPI):
     yield
     upd_task.cancel()
     try:
+        await app.state.s.mirror.stop()
         await app.state.s.player.stop()
         for d in app.state.s.drivers.values():
             await d.disconnect()
@@ -142,6 +146,11 @@ async def _google_error(_: Request, exc: google_api.GoogleError):
 @app.exception_handler(FeatureTestError)
 async def _feature_test_error(_: Request, exc: FeatureTestError):
     return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+
+
+@app.exception_handler(MirrorError)
+async def _mirror_error(_: Request, exc: MirrorError):
+    return JSONResponse({"detail": str(exc)}, status_code=409)
 
 
 @app.exception_handler(ValueError)
@@ -862,3 +871,75 @@ async def index():
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+# ---------------------------------------------------------------- screen mirroring
+class MirrorStartIn(BaseModel):
+    driver: Optional[Literal["pmd3", "cli", "mock"]] = None
+    udid: Optional[str] = None
+    audio: bool = True
+
+
+@app.get("/api/mirror")
+async def mirror_status():
+    return S().mirror.status
+
+
+@app.post("/api/mirror/start")
+async def mirror_start(body: MirrorStartIn):
+    s = S()
+    driver = body.driver or s.driver_key
+    udid = body.udid or (s.driver.info.udid if s.driver.info else None)
+    return await s.mirror.start(driver == "mock", udid, body.audio)
+
+
+@app.post("/api/mirror/stop")
+async def mirror_stop():
+    return await S().mirror.stop()
+
+
+@app.post("/api/mirror/input")
+async def mirror_input(body: dict):
+    await S().mirror.input(parse_input(body))
+    return {"ok": True}
+
+
+@app.get("/api/mirror/screenshot")
+async def mirror_screenshot():
+    return Response(await S().mirror.screenshot(), media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.websocket("/api/mirror/ws")
+async def mirror_ws(ws: WebSocket):
+    """Live picture, sound and status for the Mirror tab or another program; input goes the other way."""
+    # HTTP middleware does not run for WebSockets, so the local-only check is repeated here.
+    if not _is_local_request(ws.headers.get("host", ""), ws.headers.get("origin", "")):
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    m = S().mirror
+    client = m.subscribe()
+    await ws.send_text(json.dumps({"type": "status", "status": m.status}))
+    if m.config:
+        await ws.send_bytes(m.config)
+    with contextlib.suppress(MirrorError):
+        await m.input(("keyframe",))
+
+    async def send() -> None:
+        while True:
+            msg = await client.queue.get()
+            await (ws.send_text(msg) if isinstance(msg, str) else ws.send_bytes(msg))
+
+    sender = asyncio.create_task(send())
+    try:
+        while True:
+            text = await ws.receive_text()
+            try:
+                await m.input(parse_input(json.loads(text)))
+            except (ValueError, MirrorError, DeviceError) as e:
+                await ws.send_text(json.dumps({"type": "error", "detail": str(e)}))
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        sender.cancel()
+        m.unsubscribe(client)

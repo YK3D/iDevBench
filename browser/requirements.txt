@@ -1,6 +1,6 @@
 # Device control. Written against 11.x; newer major versions may change the Python API
 # (the "Guide commands" connection method keeps working as long as the CLI does).
-pymobiledevice3>=11.49,<12
+pymobiledevice3>=11.63,<12
 # Offline sea-lane routing
 searoute>=1.6,<2
 fastapi>=0.115

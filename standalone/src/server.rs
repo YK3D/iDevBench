@@ -45,6 +45,7 @@ pub struct AppState {
     pub restart_requested: std::sync::atomic::AtomicBool,
     pub offline: Arc<Offline>,
     pub feature_tests: Arc<FeatureTests>,
+    pub mirror: Arc<crate::mirror::Mirror>,
 }
 
 pub type App = Arc<AppState>;
@@ -63,6 +64,7 @@ impl AppState {
             updater: Arc::new(updater),
             restart: tokio::sync::Notify::new(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
+            mirror: Arc::default(),
         })
     }
 
@@ -152,6 +154,12 @@ pub fn router(app: App) -> Router {
         .route("/api/feature-tests/lock", post(ft_lock))
         .route("/api/feature-tests/open", post(ft_open))
         .route("/api/feature-tests/progress", get(ft_progress))
+        .route("/api/mirror", get(mirror_status))
+        .route("/api/mirror/start", post(mirror_start))
+        .route("/api/mirror/stop", post(mirror_stop))
+        .route("/api/mirror/input", post(mirror_input))
+        .route("/api/mirror/screenshot", get(mirror_screenshot))
+        .route("/api/mirror/ws", get(mirror_ws))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(axum::middleware::from_fn(local_only))
         .with_state(app)
@@ -174,6 +182,107 @@ async fn local_only(req: axum::extract::Request, next: axum::middleware::Next) -
         return (StatusCode::FORBIDDEN, "forbidden").into_response();
     }
     next.run(req).await
+}
+
+// ---------------------------------------------------------------- screen mirroring
+async fn mirror_status(State(app): State<App>) -> R {
+    Ok(Json(json!(app.mirror.status())))
+}
+
+#[derive(Deserialize)]
+struct MirrorStartIn {
+    driver: Option<String>,
+    udid: Option<String>,
+    #[serde(default = "yes")]
+    audio: bool,
+}
+fn yes() -> bool {
+    true
+}
+
+async fn mirror_start(State(app): State<App>, Json(b): Json<MirrorStartIn>) -> R {
+    let (kind, connected) = {
+        let d = app.devices.lock().await;
+        (d.kind, d.info().map(|i| i.udid))
+    };
+    let kind = match b.driver.as_deref() {
+        Some(k) => DriverKind::parse(k).ok_or(bad("unknown driver"))?,
+        None => kind,
+    };
+    let udid = b.udid.filter(|s| !s.is_empty()).or(connected);
+    let s = app.mirror.start(kind == DriverKind::Mock, udid, b.audio).await.map_err(dev)?;
+    Ok(Json(json!(s)))
+}
+
+async fn mirror_stop(State(app): State<App>) -> R {
+    app.mirror.stop();
+    Ok(Json(json!(app.mirror.status())))
+}
+
+async fn mirror_input(State(app): State<App>, Json(b): Json<Value>) -> R {
+    let input = crate::mirror::parse_input(&b).map_err(bad)?;
+    app.mirror.input(input).await.map_err(dev)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+async fn mirror_screenshot(State(app): State<App>) -> Result<Response, ApiError> {
+    let png = app.mirror.screenshot().await.map_err(dev)?;
+    Ok(([(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, "no-store")], png).into_response())
+}
+
+/// Live picture, sound and status for the Mirror tab or another program; input goes the other way.
+async fn mirror_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgrade) -> Response {
+    use axum::extract::ws::Message;
+    use crate::mirror::Out;
+    ws.on_upgrade(move |mut socket| async move {
+        let (mut rx, config, status) = app.mirror.subscribe();
+        let status = json!({"type": "status", "status": status}).to_string();
+        if socket.send(Message::Text(status.into())).await.is_err() {
+            return;
+        }
+        if let Some(c) = config {
+            let _ = socket.send(Message::Binary(c.to_vec().into())).await;
+        }
+        let _ = app.mirror.input(crate::mirror::Input::KeyFrame).await;
+        // Frames only make sense from a keyframe on: skip until one arrives (also after falling behind).
+        let mut need_key = true;
+        loop {
+            tokio::select! {
+                out = rx.recv() => {
+                    let msg = match out {
+                        Ok(Out::Text(t)) => Message::Text(t.as_str().into()),
+                        Ok(Out::Bin(b)) => {
+                            if b[0] == 2 {
+                                if need_key && b[1] == 0 { continue; }
+                                need_key = false;
+                            }
+                            Message::Binary(b.to_vec().into())
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            need_key = true;
+                            let _ = app.mirror.input(crate::mirror::Input::KeyFrame).await;
+                            continue;
+                        }
+                        Err(_) => break,
+                    };
+                    if socket.send(msg).await.is_err() { break; }
+                }
+                msg = socket.recv() => match msg {
+                    Some(Ok(Message::Text(t))) => {
+                        let reply = match serde_json::from_str::<Value>(&t).map_err(|e| e.to_string()).and_then(|v| crate::mirror::parse_input(&v)) {
+                            Ok(i) => app.mirror.input(i).await.err(),
+                            Err(e) => Some(e),
+                        };
+                        if let Some(e) = reply {
+                            let _ = socket.send(Message::Text(json!({"type": "error", "detail": e}).to_string().into())).await;
+                        }
+                    }
+                    Some(Ok(_)) => {}
+                    _ => break,
+                }
+            }
+        }
+    })
 }
 
 // ---------------------------------------------------------------- offline maps
@@ -1128,5 +1237,19 @@ mod tests {
         let quiet: Progress = Arc::new(|_, _, _| {});
         let e = build_route_core(app(), r, quiet).await.unwrap_err();
         assert_eq!((e.0, e.1.as_str()), (400, "Expected 2 legs, got 1"));
+    }
+
+    #[tokio::test]
+    async fn mirror_routes_with_the_simulator() {
+        let a = app();
+        let e = mirror_input(State(a.clone()), Json(json!({"t": "tap", "x": 0.5, "y": 0.5}))).await.unwrap_err();
+        assert_eq!(e.0, 409);
+        let start = MirrorStartIn { driver: Some("mock".into()), udid: None, audio: true };
+        let s = mirror_start(State(a.clone()), Json(start)).await.unwrap_or_else(|e| panic!("{}", e.1)).0;
+        assert_eq!((s["state"].as_str(), s["simulated"].as_bool()), (Some("on"), Some(true)));
+        assert!(mirror_input(State(a.clone()), Json(json!({"t": "text", "text": "hi"}))).await.is_ok());
+        assert_eq!(mirror_input(State(a.clone()), Json(json!({"t": "tap", "x": 2, "y": 0}))).await.unwrap_err().0, 400);
+        assert_eq!(mirror_screenshot(State(a.clone())).await.unwrap_err().0, 409);
+        assert_eq!(mirror_stop(State(a.clone())).await.unwrap_or_else(|e| panic!("{}", e.1)).0["state"], "off");
     }
 }
