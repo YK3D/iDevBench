@@ -1,4 +1,4 @@
-/* Sideport UI. Copyright (c) 2026 YK3D. All rights reserved. See LICENSE.
+/* iDevBench UI. Copyright (c) 2026 YK3D. All rights reserved. See LICENSE.
    Structure: one set of design tokens (theme colours + derived control colours, radii, sizes), then
    edge-to-edge panes. The side menu is a darker canvas; every pane sits on it as a full-width block with
    its own header bar, so sections read as separate groups without card chrome. Elevation (shadows) is

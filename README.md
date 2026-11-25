@@ -1,15 +1,15 @@
-<p align="center"><img src="assets/icon/icon-256.png" width="96" height="96" alt="Sideport icon"></p>
+<p align="center"><img src="assets/icon/icon-256.png" width="96" height="96" alt="iDevBench icon"></p>
 
-<h1 align="center">Sideport</h1>
+<h1 align="center">iDevBench</h1>
 
 <p align="center"><b>A free Windows toolkit for working with your iPhone over USB, with no jailbreak and no Mac.</b><br>
 Set the iPhone's GPS location: teleport anywhere, drive routes that follow real roads at realistic speeds (with bends, roundabouts and braking), replay GPX files, or walk around live with the keyboard. No accounts, no telemetry.</p>
 
-<p align="center"><sub>Sideport was previously called <i>Location Spoofer</i>. Updating keeps your settings, favourites and routes.</sub></p>
+<p align="center"><sub>iDevBench was previously called <i>Location Spoofer</i>. Updating keeps your settings, favourites and routes.</sub></p>
 
 <p align="center">
-  <a href="https://iphone-spoofer.vercel.app"><b>Website and live demo</b></a> ·
-  <a href="https://github.com/YK3D/iPhone-location-spoofer/releases?q=standalone&expanded=true"><b>⬇ Download Sideport</b></a> ·
+  <a href="https://idevbench.vercel.app"><b>Website and live demo</b></a> ·
+  <a href="https://github.com/YK3D/iPhone-location-spoofer/releases?q=standalone&expanded=true"><b>⬇ Download iDevBench</b></a> ·
   <a href="https://github.com/YK3D/iPhone-location-spoofer/releases?q=browser&expanded=true">Browser edition</a> ·
   <a href="#getting-started">Getting started</a> ·
   <a href="#features">Features</a> ·
@@ -18,8 +18,8 @@ Set the iPhone's GPS location: teleport anywhere, drive routes that follow real 
   <a href="TERMS.md">Terms</a>
 </p>
 
-<p align="center"><a href="https://iphone-spoofer.vercel.app"><img src="docs/screenshots/demo.webp" width="900" alt="The app building a car route across London: two checkpoints are placed, the build shows each step, then three alternative routes appear labelled with their extra time"></a><br>
-<sub>Try a smaller version of the app in your browser at <a href="https://iphone-spoofer.vercel.app">iphone-spoofer.vercel.app</a>.</sub></p>
+<p align="center"><a href="https://idevbench.vercel.app"><img src="docs/screenshots/demo.webp" width="900" alt="The app building a car route across London: two checkpoints are placed, the build shows each step, then three alternative routes appear labelled with their extra time"></a><br>
+<sub>Try a smaller version of the app in your browser at <a href="https://idevbench.vercel.app">idevbench.vercel.app</a>.</sub></p>
 
 > **Use it responsibly.** Location simulation is meant for testing apps, demos and privacy. Many games, dating, banking, school, work and delivery apps forbid fake locations and may suspend your account. Apps can also detect simulation or use Wi-Fi, IP address and motion sensors, which this tool does not change. See the [Terms of Use](TERMS.md).
 
@@ -75,7 +75,7 @@ Both have the same look and features, and both update themselves. The download f
 | A speedometer app on the iPhone shows 0, or the heading arrow doesn't turn | Apple's location simulation only carries a position, so iOS reports no speed or course for it. Apps that work out speed from movement (navigation apps, most games) are fine. The app's own map shows the simulated speed and heading |
 | "My real location" says Windows blocked it | Turn on *Settings › Privacy & security › Location* and "Let desktop apps access your location" (the message has a button for it) |
 | Location stays wrong after you finish | Press **Stop spoofing**, or restart the iPhone |
-| The app shows an older version number | An older copy is still running in the background. Close every Sideport window, end any **location-spoofer** or **LocationSpooferStandalone** task in Task Manager, then open the new file |
+| The app shows an older version number | An older copy is still running in the background. Close every iDevBench window, end any **location-spoofer** or **LocationSpooferStandalone** task in Task Manager, then open the new file |
 | Something else | [Open an issue](https://github.com/YK3D/iPhone-location-spoofer/issues/new) and describe what happened, with the app's version (*Settings › About*) |
 
 </details>
@@ -211,7 +211,7 @@ The app has no accounts, no analytics and no telemetry. Your favourites, routes 
 
 ## Licence
 
-Sideport is free to download and use, but it is **not open source**: © 2026 YK3D, all rights reserved.
+iDevBench is free to download and use, but it is **not open source**: © 2026 YK3D, all rights reserved.
 
 * You may use the app, read its code and suggest changes through pull requests.
 * You may **not** copy its code, interface or icon into other projects, redistribute it, sell it or publish modified versions **without written permission**, and any permitted use must credit "Location Spoofer by YK3D". See [LICENSE](LICENSE).
@@ -219,4 +219,4 @@ Sideport is free to download and use, but it is **not open source**: © 2026 YK3
 * Third-party components keep their own licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 * To ask for permission, [open an issue](https://github.com/YK3D/iPhone-location-spoofer/issues/new). Security problems: see [SECURITY.md](SECURITY.md). Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Sideport is an independent project and is not affiliated with, endorsed by or sponsored by Apple Inc. or Google LLC. iPhone is a trademark of Apple Inc.; Google Maps is a trademark of Google LLC.
+iDevBench is an independent project and is not affiliated with, endorsed by or sponsored by Apple Inc. or Google LLC. iPhone is a trademark of Apple Inc.; Google Maps is a trademark of Google LLC.

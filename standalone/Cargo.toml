@@ -2,7 +2,7 @@
 name = "location-spoofer"
 version = "0.1.0"
 edition = "2021"
-description = "Sideport: standalone desktop app for working with an iPhone over USB"
+description = "iDevBench: standalone desktop app for working with an iPhone over USB"
 license-file = "../LICENSE"
 authors = ["YK3D"]
 publish = false
@@ -78,5 +78,5 @@ strip = true
 panic = "unwind"
 
 [package.metadata.winres]
-ProductName = "Sideport"
-FileDescription = "Sideport"
+ProductName = "iDevBench"
+FileDescription = "iDevBench"

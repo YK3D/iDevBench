@@ -17,7 +17,7 @@
             ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>Sideport</DisplayName>
+    <DisplayName>iDevBench</DisplayName>
     <PublisherDisplayName>TODO Publisher name</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <Description>Test apps on your own iPhone over USB: simulate GPS locations and routes.</Description>
@@ -33,7 +33,7 @@
 
   <Applications>
     <Application Id="App" Executable="location-spoofer.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements DisplayName="Sideport"
+      <uap:VisualElements DisplayName="iDevBench"
                           Description="Simulate GPS routes on your own iPhone over USB"
                           BackgroundColor="transparent"
                           Square150x150Logo="Assets\Square150x150Logo.png"

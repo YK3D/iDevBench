@@ -2,7 +2,7 @@
 
 _Last updated: 25 November 2026_
 
-This policy covers both editions of Sideport, formerly called Location Spoofer: the standalone app (`LocationSpooferStandalone.exe`) and the browser version (`LocationSpooferBrowser.exe` or run from source). Together they are called "the app".
+This policy covers both editions of iDevBench, formerly called Location Spoofer: the standalone app (`LocationSpooferStandalone.exe`) and the browser version (`LocationSpooferBrowser.exe` or run from source). Together they are called "the app".
 
 ## The short version
 
