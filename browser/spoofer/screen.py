@@ -1,11 +1,11 @@
 """Screen mirroring: the iPhone's screen and sound in the app, and mouse/keyboard control.
 
-Same behaviour, messages and WebSocket format as the standalone app (standalone/src/mirror).
+Same behaviour, messages and WebSocket format as the standalone app (standalone/src/screen).
 iOS 27+ streams its display through ``com.apple.coredevice.displayservice`` as HEVC over RTP
 and its sound as AAC-ELD; touches, buttons and keys go back through the CoreDevice HID
 services, which only accept input while a stream runs. pymobiledevice3 provides the services.
 
-WebSocket messages to clients (``/api/mirror/ws``):
+WebSocket messages to clients (``/api/screen/ws``):
 
 * ``[1][width u16][height u16][codec length u8][codec][hvcC]``: decoder setup;
 * ``[2][key u8][timestamp µs u64][frame as 4-byte length-prefixed NAL units]``;
@@ -40,7 +40,7 @@ BUTTONS = {
 }
 
 
-class MirrorError(Exception):
+class ScreenError(Exception):
     """Shown to the user as is (HTTP 409)."""
 
 
@@ -401,7 +401,7 @@ class _Client:
         self.need_key = True
 
 
-class Mirror:
+class Screen:
     def __init__(self) -> None:
         self.status = _status()
         self.session = 0
@@ -467,7 +467,7 @@ class Mirror:
             await asyncio.wait_for(asyncio.shield(ready), 60)
         except asyncio.TimeoutError:
             await self.stop()
-            raise MirrorError("Timed out starting screen mirroring. Unlock the iPhone and try again.") from None
+            raise ScreenError("Timed out starting screen mirroring. Unlock the iPhone and try again.") from None
         return dict(self.status)
 
     async def _cancel(self) -> None:
@@ -485,7 +485,7 @@ class Mirror:
 
     def _require(self) -> Optional["_Live"]:
         if self.status["state"] != "on":
-            raise MirrorError("Screen mirroring is not running. Start it first.")
+            raise ScreenError("Screen mirroring is not running. Start it first.")
         return self._live
 
     async def input(self, i: tuple) -> None:
@@ -499,7 +499,7 @@ class Mirror:
     async def screenshot(self) -> bytes:
         live = self._require()
         if live is None:
-            raise MirrorError("The simulator has no screen to capture.")
+            raise ScreenError("The simulator has no screen to capture.")
         return await live.screenshot()
 
     async def _run(self, session: int, udid: Optional[str], audio: bool, ready: asyncio.Future) -> None:
@@ -513,7 +513,7 @@ class Mirror:
                 await live.loop()
         except asyncio.CancelledError:
             raise
-        except MirrorError as e:
+        except ScreenError as e:
             error = str(e)
         except Exception as e:  # noqa: BLE001 - shown to the user
             log.exception("screen mirroring failed")
@@ -522,7 +522,7 @@ class Mirror:
             error = _friendly(e)
         finally:
             if not ready.done():
-                ready.set_exception(MirrorError(error or "Screen mirroring stopped."))
+                ready.set_exception(ScreenError(error or "Screen mirroring stopped."))
             self._ended(session, error)
 
 
@@ -532,7 +532,7 @@ MEDIA_IN_USE_CODE = 9022
 class _Live:
     """One mirroring session with a real iPhone."""
 
-    def __init__(self, m: Mirror, session: int) -> None:
+    def __init__(self, m: Screen, session: int) -> None:
         self.m, self.session = m, session
         self.want_key = True
         self.hid = self.indigo = None
@@ -551,14 +551,14 @@ class _Live:
         stack.push_async_callback(lockdown.close)
         version = lockdown.product_version
         if _major(version) < 27:
-            raise MirrorError(f"Screen mirroring needs iOS 27 or newer. This iPhone has iOS {version}.")
+            raise ScreenError(f"Screen mirroring needs iOS 27 or newer. This iPhone has iOS {version}.")
         driver = Pmd3Driver()
         self.rsd, _how = await driver._open_rsd(stack, udid or lockdown.udid, lockdown.udid)
         mount_note = await driver._try_mount(self.rsd)
         try:
             self.display = await stack.enter_async_context(DisplayService(self.rsd))
         except Exception as e:  # noqa: BLE001
-            raise MirrorError(f"The iPhone's screen service is not available ({e}). {mount_note or 'Check that Developer Mode is on.'}") from e
+            raise ScreenError(f"The iPhone's screen service is not available ({e}). {mount_note or 'Check that Developer Mode is on.'}") from e
         self.video, receiver_ip = open_media_receiver(self.display, (8 << 20, 4 << 20))
         stack.callback(self.video.close)
         self.audio_rx, _ = open_media_receiver(self.display, (1 << 20,))
@@ -572,7 +572,7 @@ class _Live:
             v = await self.display.start_video_stream(receiver_ip, self.video.port, self.sender_ip, display_id=1, client_session_id=sid)
         except Exception as e:
             if getattr(e, "code", None) == MEDIA_IN_USE_CODE:
-                raise MirrorError("The iPhone won't share its screen while an app uses the camera or microphone "
+                raise ScreenError("The iPhone won't share its screen while an app uses the camera or microphone "
                                   "(for example Camera or Voice Memos). Close that app and try again.") from e
             raise
         stack.push_async_callback(self._stop_streams)
@@ -614,7 +614,7 @@ class _Live:
         finally:
             for t in tasks:
                 t.cancel()
-        raise MirrorError("The connection to the iPhone was lost.")
+        raise ScreenError("The connection to the iPhone was lost.")
 
     def _ts(self) -> int:
         return int((time.monotonic() - self.started) * 1e6)
@@ -696,7 +696,7 @@ class _Live:
             self.want_key = True
             return
         if self.hid is None or self.indigo is None:
-            raise MirrorError("The iPhone did not accept touch input in this session. Stop and start mirroring again.")
+            raise ScreenError("The iPhone did not accept touch input in this session. Stop and start mirroring again.")
         if kind == "touch":
             state = TOUCHSCREEN_STATE_RELEASE if i[1] == "up" else TOUCHSCREEN_STATE_CONTACT
             await self.hid.send_touchscreen(state, i[2], i[3])

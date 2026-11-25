@@ -6,7 +6,7 @@ import struct
 import pytest
 from fastapi.testclient import TestClient
 
-from spoofer import mirror as mi
+from spoofer import screen as mi
 
 
 class _Writer:
@@ -142,27 +142,27 @@ def client(tmp_path, monkeypatch):
 
 
 def test_mirror_routes_with_the_simulator(client):
-    assert client.get("/api/mirror").json()["state"] == "off"
-    assert client.post("/api/mirror/input", json={"t": "tap", "x": 0.5, "y": 0.5}).status_code == 409
-    s = client.post("/api/mirror/start", json={"driver": "mock"}).json()
+    assert client.get("/api/screen").json()["state"] == "off"
+    assert client.post("/api/screen/input", json={"t": "tap", "x": 0.5, "y": 0.5}).status_code == 409
+    s = client.post("/api/screen/start", json={"driver": "mock"}).json()
     assert (s["state"], s["simulated"], s["width"]) == ("on", True, 1170)
-    assert client.post("/api/mirror/input", json={"t": "text", "text": "hi"}).json() == {"ok": True}
-    assert client.post("/api/mirror/input", json={"t": "tap", "x": 2, "y": 0}).status_code == 400
-    assert client.get("/api/mirror/screenshot").status_code == 409
+    assert client.post("/api/screen/input", json={"t": "text", "text": "hi"}).json() == {"ok": True}
+    assert client.post("/api/screen/input", json={"t": "tap", "x": 2, "y": 0}).status_code == 400
+    assert client.get("/api/screen/screenshot").status_code == 409
     # The test client sends "Host: testserver" for WebSockets unless told otherwise.
-    with client.websocket_connect("/api/mirror/ws", headers={"host": "127.0.0.1:8765"}) as ws:
+    with client.websocket_connect("/api/screen/ws", headers={"host": "127.0.0.1:8765"}) as ws:
         assert json.loads(ws.receive_text())["status"]["state"] == "on"
         ws.send_text(json.dumps({"t": "button", "name": "nope"}))
         assert json.loads(ws.receive_text())["type"] == "error"
     from spoofer import server
 
-    assert ("text", "hi") in server.app.state.s.mirror.sim_inputs
-    assert client.post("/api/mirror/stop").json()["state"] == "off"
+    assert ("text", "hi") in server.app.state.s.screen.sim_inputs
+    assert client.post("/api/screen/stop").json()["state"] == "off"
 
 
 def test_websocket_refuses_other_websites(client):
     from starlette.websockets import WebSocketDisconnect
 
     with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect("/api/mirror/ws", headers={"host": "127.0.0.1:8765", "origin": "https://evil.example"}) as ws:
+        with client.websocket_connect("/api/screen/ws", headers={"host": "127.0.0.1:8765", "origin": "https://evil.example"}) as ws:
             ws.receive_text()

@@ -32,12 +32,12 @@ Needs iOS 27 or newer. The phone only accepts touches and keys while mirroring r
 
 | Method and path | Body | What it does |
 |---|---|---|
-| `GET /api/mirror` | | Status: `state` (`off`, `starting`, `on`, `error`), `error`, `simulated`, `width`, `height` (screen pixels), `audio`, `note` |
-| `POST /api/mirror/start` | `{"driver": "pmd3", "udid": null, "audio": true}` | Start (all fields optional; defaults to the device the app is connected to). Returns the status once the picture is flowing |
-| `POST /api/mirror/stop` | `{}` | Stop |
-| `POST /api/mirror/input` | one input, see below | Tap, swipe, press a button or type |
-| `GET /api/mirror/screenshot` | | A PNG of the screen, taken by the phone |
-| `GET /api/mirror/ws` | WebSocket | Live picture, sound and status; send inputs on it too |
+| `GET /api/screen` | | Status: `state` (`off`, `starting`, `on`, `error`), `error`, `simulated`, `width`, `height` (screen pixels), `audio`, `note` |
+| `POST /api/screen/start` | `{"driver": "pmd3", "udid": null, "audio": true}` | Start (all fields optional; defaults to the device the app is connected to). Returns the status once the picture is flowing |
+| `POST /api/screen/stop` | `{}` | Stop |
+| `POST /api/screen/input` | one input, see below | Tap, swipe, press a button or type |
+| `GET /api/screen/screenshot` | | A PNG of the screen, taken by the phone |
+| `GET /api/screen/ws` | WebSocket | Live picture, sound and status; send inputs on it too |
 
 ### Inputs
 
@@ -54,20 +54,20 @@ Coordinates are fractions of the screen as the phone holds it natively (portrait
 | Ask for a fresh full frame | `{"t": "keyframe"}` |
 
 ```bash
-curl -X POST http://127.0.0.1:8766/api/mirror/start -H "Content-Type: application/json" -d '{}'
+curl -X POST http://127.0.0.1:8766/api/screen/start -H "Content-Type: application/json" -d '{}'
 ```
 
 ```bash
-curl -X POST http://127.0.0.1:8766/api/mirror/input -H "Content-Type: application/json" -d '{"t":"tap","x":0.5,"y":0.5}'
+curl -X POST http://127.0.0.1:8766/api/screen/input -H "Content-Type: application/json" -d '{"t":"tap","x":0.5,"y":0.5}'
 ```
 
 ```bash
-curl -o screen.png http://127.0.0.1:8766/api/mirror/screenshot
+curl -o screen.png http://127.0.0.1:8766/api/screen/screenshot
 ```
 
 ### The WebSocket
 
-`ws://127.0.0.1:8766/api/mirror/ws` sends:
+`ws://127.0.0.1:8766/api/screen/ws` sends:
 
 * **text**: `{"type": "status", "status": {...}}` when the status changes (one straight away), and `{"type": "error", "detail": "..."}` when an input you sent failed;
 * **binary**, first byte is the kind, numbers are big-endian:
@@ -75,7 +75,7 @@ curl -o screen.png http://127.0.0.1:8766/api/mirror/screenshot
   * `2` frame: keyframe flag (u8, 1 = key), timestamp in microseconds (u64), then the frame as HEVC NAL units, each with a 4-byte length;
   * `3` sound: timestamp in microseconds (u64), then PCM: 16-bit little-endian, 48 kHz, stereo, interleaved.
 
-A new connection gets the decoder setup (if the picture has started) and frames from the next keyframe on. Send inputs as text messages with the same JSON as `POST /api/mirror/input`.
+A new connection gets the decoder setup (if the picture has started) and frames from the next keyframe on. Send inputs as text messages with the same JSON as `POST /api/screen/input`.
 
 To decode in a browser, use WebCodecs: `VideoDecoder.configure({codec, description: hvcC})`, then `new EncodedVideoChunk({type: key ? "key" : "delta", timestamp, data})` for each frame. To save the raw stream for a player, write the `hvcC` parameter sets and each NAL unit with `00 00 00 01` start codes instead of lengths; `ffplay` and VLC play the result.
 
@@ -86,12 +86,12 @@ import json, requests
 from websockets.sync.client import connect  # pip install requests websockets
 
 base = "http://127.0.0.1:8766"
-print(requests.post(f"{base}/api/mirror/start", json={}).json())
-requests.post(f"{base}/api/mirror/input", json={"t": "button", "name": "home"}).raise_for_status()
-requests.post(f"{base}/api/mirror/input", json={"t": "swipe", "x1": 0.5, "y1": 0.8, "x2": 0.5, "y2": 0.3})
-open("screen.png", "wb").write(requests.get(f"{base}/api/mirror/screenshot").content)
+print(requests.post(f"{base}/api/screen/start", json={}).json())
+requests.post(f"{base}/api/screen/input", json={"t": "button", "name": "home"}).raise_for_status()
+requests.post(f"{base}/api/screen/input", json={"t": "swipe", "x1": 0.5, "y1": 0.8, "x2": 0.5, "y2": 0.3})
+open("screen.png", "wb").write(requests.get(f"{base}/api/screen/screenshot").content)
 
-with connect("ws://127.0.0.1:8766/api/mirror/ws") as ws:
+with connect("ws://127.0.0.1:8766/api/screen/ws") as ws:
     for _ in range(100):
         msg = ws.recv()
         if isinstance(msg, str):

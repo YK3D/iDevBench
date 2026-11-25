@@ -25,7 +25,8 @@ from .device.cli import CliDriver
 from .device.mock import MockDriver
 from .device.pmd3 import Pmd3Driver
 from .gpx_io import parse_gpx, safe_filename, write_gpx
-from .mirror import Mirror, MirrorError, parse_input
+from .mirrors import FanOut, MirrorLink
+from .screen import Screen, ScreenError, parse_input
 from .player import Player
 from .profile import (
     Leg,
@@ -58,17 +59,31 @@ class AppState:
     def __init__(self) -> None:
         self.drivers: dict[str, DeviceDriver] = {d.key: d for d in (Pmd3Driver(), CliDriver(), MockDriver())}
         self.driver_key = "pmd3"
-        self.player = Player(lambda: self.driver)
+        # extra iPhones that follow the main one, by UDID (see mirrors.py)
+        self.mirrors: dict[str, MirrorLink] = {}
+        self.fanout = FanOut(lambda: self.driver, lambda: list(self.mirrors.values()))
+        self.player = Player(lambda: self.fanout)
         self.timelines: "OrderedDict[str, tuple[Timeline, str, list, bool]]" = OrderedDict()
         self.store = Store()
         self.updater = Updater()  # replaced by __main__ with the real one; disabled from source
         self.offline = Offline(data_dir())
         self.feature_tests = FeatureTests(data_dir())
-        self.mirror = Mirror()
+        self.screen = Screen()
 
     @property
     def driver(self) -> DeviceDriver:
         return self.drivers[self.driver_key]
+
+    async def drop_mirror(self, udid: str, clear: bool = False) -> bool:
+        link = self.mirrors.pop(udid, None)
+        if link is None:
+            return False
+        await link.close(clear)
+        return True
+
+    async def drop_mirrors(self, clear: bool = False) -> None:
+        for udid in list(self.mirrors):
+            await self.drop_mirror(udid, clear)
 
     def keep_timeline(self, tl: Timeline, name: str, waypoints: list, exportable: bool = True) -> str:
         tid = uuid.uuid4().hex[:12]
@@ -96,8 +111,9 @@ async def lifespan(app: FastAPI):
     yield
     upd_task.cancel()
     try:
-        await app.state.s.mirror.stop()
+        await app.state.s.screen.stop()
         await app.state.s.player.stop()
+        await app.state.s.drop_mirrors()
         for d in app.state.s.drivers.values():
             await d.disconnect()
     finally:
@@ -148,8 +164,8 @@ async def _feature_test_error(_: Request, exc: FeatureTestError):
     return JSONResponse({"detail": str(exc)}, status_code=exc.status)
 
 
-@app.exception_handler(MirrorError)
-async def _mirror_error(_: Request, exc: MirrorError):
+@app.exception_handler(ScreenError)
+async def _screen_error(_: Request, exc: ScreenError):
     return JSONResponse({"detail": str(exc)}, status_code=409)
 
 
@@ -171,6 +187,19 @@ class TextIn(BaseModel):
 class ConnectIn(BaseModel):
     driver: Literal["pmd3", "cli", "mock"] = "pmd3"
     udid: Optional[str] = None
+    connection: Literal["auto", "usb", "network"] = "auto"
+
+
+class MirrorIn(BaseModel):
+    udid: str
+    connection: Literal["auto", "usb", "network"] = "auto"
+
+
+class UdidIn(BaseModel):
+    udid: Optional[str] = None
+
+
+MAX_MIRRORS = 8
 
 
 class WaypointIn(BaseModel):
@@ -284,13 +313,14 @@ async def status():
         "version": __version__,
         "app": "browser",
         "feature_test": None,
-        "features": {"cli_driver": True, "tunnel_helper": True},
+        "features": {"cli_driver": True, "tunnel_helper": True, "multi_device": True, "wifi": True},
         "driver": s.driver_key,
         "drivers": [{"key": k, "label": v.label, "live": v.live} for k, v in s.drivers.items()],
         "device": d.info.to_dict() if d.info else None,
         "live": d.live,
         "player": s.player.status(),
         "update": s.updater.status(),
+        "mirrors": [m.to_dict() for m in s.mirrors.values()],
     }
 
 
@@ -304,9 +334,13 @@ async def connect(body: ConnectIn):
     s = S()
     await s.player.stop()
     if body.driver != s.driver_key:
+        await s.drop_mirrors()
         await s.driver.disconnect()
         s.driver_key = body.driver
-    info = await s.driver.connect(body.udid or None)
+    if body.udid:
+        await s.drop_mirror(body.udid)  # it becomes the main phone instead
+    info = await s.driver.connect(body.udid or None, body.connection)
+    await s.drop_mirror(info.udid)
     return {"device": info.to_dict()}
 
 
@@ -314,8 +348,53 @@ async def connect(body: ConnectIn):
 async def disconnect():
     s = S()
     await s.player.stop()
+    await s.drop_mirrors()
     await s.driver.disconnect()
     return {"ok": True}
+
+
+@app.post("/api/mirrors")
+async def mirror_add(body: MirrorIn):
+    """Another iPhone follows the main one: same position, same route, from now on."""
+    s = S()
+    main = s.driver
+    if not main.connected or main.info is None:
+        raise DeviceError("Connect the main iPhone first.")
+    if not main.live:
+        raise DeviceError("Several iPhones at once need the Direct connection (or the Simulator).")
+    if body.udid == main.info.udid:
+        raise DeviceError("That is the main iPhone already.")
+    if body.udid in s.mirrors:
+        raise DeviceError("That iPhone already follows the main one.")
+    if len(s.mirrors) >= MAX_MIRRORS:
+        raise DeviceError(f"Up to {MAX_MIRRORS} extra iPhones can follow the main one.")
+    drv = type(main)()
+    info = await drv.connect(body.udid, body.connection)
+    if info.udid == main.info.udid or info.udid in s.mirrors:
+        await drv.disconnect()
+        raise DeviceError("That iPhone is connected already.")
+    link = MirrorLink(drv)
+    s.mirrors[info.udid] = link
+    pos = s.player.position
+    if pos is not None:
+        link.push_set(pos.lat, pos.lon)  # catch up with the main phone straight away
+    return {"mirror": link.to_dict(), "mirrors": [m.to_dict() for m in s.mirrors.values()]}
+
+
+@app.delete("/api/mirrors/{udid}")
+async def mirror_remove(udid: str, clear: bool = True):
+    """Stop following; by default the phone goes back to its real location."""
+    s = S()
+    if not await s.drop_mirror(udid, clear):
+        raise HTTPException(404, "That iPhone doesn't follow the main one.")
+    return {"mirrors": [m.to_dict() for m in s.mirrors.values()]}
+
+
+@app.post("/api/device/wifi")
+async def enable_wifi(body: UdidIn):
+    s = S()
+    udid = body.udid or (s.driver.info.udid if s.driver.info else None)
+    return {"message": await s.driver.enable_wifi(udid)}
 
 
 @app.post("/api/device/reveal-developer-mode")
@@ -874,55 +953,55 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
 # ---------------------------------------------------------------- screen mirroring
-class MirrorStartIn(BaseModel):
+class ScreenStartIn(BaseModel):
     driver: Optional[Literal["pmd3", "cli", "mock"]] = None
     udid: Optional[str] = None
     audio: bool = True
 
 
-@app.get("/api/mirror")
-async def mirror_status():
-    return S().mirror.status
+@app.get("/api/screen")
+async def screen_status():
+    return S().screen.status
 
 
-@app.post("/api/mirror/start")
-async def mirror_start(body: MirrorStartIn):
+@app.post("/api/screen/start")
+async def screen_start(body: ScreenStartIn):
     s = S()
     driver = body.driver or s.driver_key
     udid = body.udid or (s.driver.info.udid if s.driver.info else None)
-    return await s.mirror.start(driver == "mock", udid, body.audio)
+    return await s.screen.start(driver == "mock", udid, body.audio)
 
 
-@app.post("/api/mirror/stop")
-async def mirror_stop():
-    return await S().mirror.stop()
+@app.post("/api/screen/stop")
+async def screen_stop():
+    return await S().screen.stop()
 
 
-@app.post("/api/mirror/input")
-async def mirror_input(body: dict):
-    await S().mirror.input(parse_input(body))
+@app.post("/api/screen/input")
+async def screen_input(body: dict):
+    await S().screen.input(parse_input(body))
     return {"ok": True}
 
 
-@app.get("/api/mirror/screenshot")
-async def mirror_screenshot():
-    return Response(await S().mirror.screenshot(), media_type="image/png", headers={"Cache-Control": "no-store"})
+@app.get("/api/screen/screenshot")
+async def screen_screenshot():
+    return Response(await S().screen.screenshot(), media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
-@app.websocket("/api/mirror/ws")
-async def mirror_ws(ws: WebSocket):
+@app.websocket("/api/screen/ws")
+async def screen_ws(ws: WebSocket):
     """Live picture, sound and status for the Mirror tab or another program; input goes the other way."""
     # HTTP middleware does not run for WebSockets, so the local-only check is repeated here.
     if not _is_local_request(ws.headers.get("host", ""), ws.headers.get("origin", "")):
         await ws.close(code=1008)
         return
     await ws.accept()
-    m = S().mirror
+    m = S().screen
     client = m.subscribe()
     await ws.send_text(json.dumps({"type": "status", "status": m.status}))
     if m.config:
         await ws.send_bytes(m.config)
-    with contextlib.suppress(MirrorError):
+    with contextlib.suppress(ScreenError):
         await m.input(("keyframe",))
 
     async def send() -> None:
@@ -936,7 +1015,7 @@ async def mirror_ws(ws: WebSocket):
             text = await ws.receive_text()
             try:
                 await m.input(parse_input(json.loads(text)))
-            except (ValueError, MirrorError, DeviceError) as e:
+            except (ValueError, ScreenError, DeviceError) as e:
                 await ws.send_text(json.dumps({"type": "error", "detail": str(e)}))
     except (WebSocketDisconnect, RuntimeError):
         pass

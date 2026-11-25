@@ -2,7 +2,7 @@
 //! Protocol details follow the idevice crate's `displayservice` support (MIT) and
 //! pymobiledevice3's notes on what the phone expects.
 
-use super::{audio, config_message, frame_message, audio_message, hevc, Cmd, Input, Mirror, Phase};
+use super::{audio, config_message, frame_message, audio_message, hevc, Cmd, Input, Phase, Screen};
 use crate::device::idev;
 use idevice::{
     core_device::{
@@ -30,7 +30,7 @@ type Hid = UniversalHidServiceClient<Box<dyn ReadWrite>>;
 type Indigo = IndigoHidClient<Box<dyn ReadWrite>>;
 
 pub(super) async fn run(
-    m: Arc<Mirror>,
+    m: Arc<Screen>,
     session: u64,
     udid: Option<String>,
     audio_on: bool,
@@ -79,7 +79,7 @@ impl SeqCounter {
 }
 
 async fn stream(
-    m: &Arc<Mirror>,
+    m: &Arc<Screen>,
     session: u64,
     udid: Option<String>,
     audio_on: bool,
@@ -87,7 +87,7 @@ async fn stream(
     ready: &mut Option<oneshot::Sender<Result<(), String>>>,
 ) -> Result<(), String> {
     let fr = |e: idevice::IdeviceError| idev::friendly(&e);
-    let (provider, _) = idev::find_device(udid.as_deref()).await?;
+    let (provider, _) = idev::find_device(udid.as_deref(), crate::device::Via::Auto).await?;
     idev::ensure_paired(&provider).await?;
     let pairing = provider.get_pairing_file().await.map_err(fr)?;
     let mut ld = LockdownClient::connect(&provider).await.map_err(fr)?;

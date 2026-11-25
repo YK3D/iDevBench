@@ -7,6 +7,10 @@ Test builds from the `dev` branch are marked as pre-releases.
 
 ## Unreleased (dev)
 
+### Experimental (`feature-testing` only; see [docs/testing/multiple-iphones-and-wifi.md](docs/testing/multiple-iphones-and-wifi.md))
+- Several iPhones at once: phones added under *Device › More iPhones* follow the main one (teleports, routes, GPX, joystick, Stop spoofing). Each gets positions from its own queue, so a slow or lost phone never holds up the others; a lost phone is marked until removed, and removing one sends it back to its real location. The Simulator has a second phone to try it.
+- Wi-Fi connections: *Device tools › Connect over* (Automatic, USB cable only, Wi-Fi only) and *Allow Wi-Fi connection*, which turns on the phone's "Show this iPhone when on Wi-Fi" setting. The device list shows how each phone can be reached (USB, Wi-Fi, or both). In the browser version, a second iOS 17+ phone or an iOS 17+ phone over Wi-Fi needs the tunnel helper. Bluetooth isn't possible.
+
 ### New
 - **Screen mirroring (Mirror tab, iOS 27 and newer):** the iPhone's screen in the app over the USB cable. Click to tap, drag to swipe, right-click for Home, buttons for Home, Lock, Volume and Siri, and typing from your keyboard (Ctrl works as ⌘). The standalone app also plays the iPhone's sound. Save screenshots, or record the screen with its sound as a video.
 - **Local API:** other programs on your computer can set the location, watch the screen, tap, swipe and type through the app while it is open (websites can't). See [docs/API.md](docs/API.md).

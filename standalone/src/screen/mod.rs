@@ -6,13 +6,13 @@
 //! a stream is running. Each session runs on its own thread with its own tunnel, like the
 //! location session (the idevice futures are not `Send`).
 //!
-//! Clients (the Mirror tab, or other programs) read a WebSocket at `/api/mirror/ws`:
+//! Clients (the Mirror tab, or other programs) read a WebSocket at `/api/screen/ws`:
 //! * binary `[1][width u16][height u16][codec length u8][codec][hvcC]`: decoder setup;
 //! * binary `[2][key u8][timestamp µs u64][frame as 4-byte length-prefixed NAL units]`;
 //! * binary `[3][timestamp µs u64][PCM s16le, 48 kHz, stereo]`;
 //! * text: the status JSON whenever it changes.
 //!
-//! and send input as JSON (the same body `POST /api/mirror/input` takes), see [`parse_input`].
+//! and send input as JSON (the same body `POST /api/screen/input` takes), see [`parse_input`].
 
 pub mod hevc;
 
@@ -177,18 +177,18 @@ struct Inner {
     pub sim_inputs: Vec<Input>,
 }
 
-pub struct Mirror {
+pub struct Screen {
     inner: Mutex<Inner>,
     out: broadcast::Sender<Out>,
 }
 
-impl Default for Mirror {
+impl Default for Screen {
     fn default() -> Self {
         Self { inner: Mutex::default(), out: broadcast::channel(512).0 }
     }
 }
 
-impl Mirror {
+impl Screen {
     pub fn status(&self) -> Status {
         self.inner.lock().unwrap().status.clone()
     }
@@ -314,7 +314,7 @@ impl Mirror {
     }
 }
 
-async fn simulator(m: Arc<Mirror>, session: u64, mut rx: mpsc::UnboundedReceiver<Cmd>) {
+async fn simulator(m: Arc<Screen>, session: u64, mut rx: mpsc::UnboundedReceiver<Cmd>) {
     while let Some(cmd) = rx.recv().await {
         match cmd {
             Cmd::Input(i, r) => {
@@ -453,7 +453,7 @@ mod tests {
 
     #[tokio::test]
     async fn simulated_session_takes_input_and_stops() {
-        let m = Arc::new(Mirror::default());
+        let m = Arc::new(Screen::default());
         assert!(m.input(Input::KeyFrame).await.is_err());
         let s = m.start(true, None, true).await.unwrap();
         assert_eq!((s.state, s.simulated, s.width), ("on", true, Some(1170)));

@@ -1,7 +1,7 @@
 //! Local HTTP server for the UI: same JSON API as the browser version (server.py), so the
 //! front end in ui/ is shared between both apps.
 
-use crate::device::{DeviceManager, DriverKind};
+use crate::device::{DeviceManager, DriverKind, Via};
 use crate::player::{Devices, Player};
 use crate::profile::{self, Leg, ProfileSettings, Ramp, Timeline, Waypoint};
 use crate::{feature_tests::FeatureTests, geo, gmaps_links, gpx, offline::Offline, routing, store::Store, updater::Updater};
@@ -45,7 +45,7 @@ pub struct AppState {
     pub restart_requested: std::sync::atomic::AtomicBool,
     pub offline: Arc<Offline>,
     pub feature_tests: Arc<FeatureTests>,
-    pub mirror: Arc<crate::mirror::Mirror>,
+    pub screen: Arc<crate::screen::Screen>,
 }
 
 pub type App = Arc<AppState>;
@@ -64,7 +64,7 @@ impl AppState {
             updater: Arc::new(updater),
             restart: tokio::sync::Notify::new(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
-            mirror: Arc::default(),
+            screen: Arc::default(),
         })
     }
 
@@ -91,6 +91,7 @@ impl AppState {
 }
 
 // ---------------------------------------------------------------- errors
+#[derive(Debug)]
 pub struct ApiError(pub u16, pub String);
 
 impl IntoResponse for ApiError {
@@ -120,6 +121,9 @@ pub fn router(app: App) -> Router {
         .route("/api/disconnect", post(disconnect))
         .route("/api/device/reveal-developer-mode", post(reveal))
         .route("/api/device/mount", post(mount))
+        .route("/api/device/wifi", post(enable_wifi))
+        .route("/api/mirrors", post(mirror_add))
+        .route("/api/mirrors/{udid}", delete(mirror_remove))
         .route("/api/location/set", post(set_location))
         .route("/api/location/clear", post(clear_location))
         .route("/api/parse-coords", post(parse_coords))
@@ -154,12 +158,12 @@ pub fn router(app: App) -> Router {
         .route("/api/feature-tests/lock", post(ft_lock))
         .route("/api/feature-tests/open", post(ft_open))
         .route("/api/feature-tests/progress", get(ft_progress))
-        .route("/api/mirror", get(mirror_status))
-        .route("/api/mirror/start", post(mirror_start))
-        .route("/api/mirror/stop", post(mirror_stop))
-        .route("/api/mirror/input", post(mirror_input))
-        .route("/api/mirror/screenshot", get(mirror_screenshot))
-        .route("/api/mirror/ws", get(mirror_ws))
+        .route("/api/screen", get(screen_status))
+        .route("/api/screen/start", post(screen_start))
+        .route("/api/screen/stop", post(screen_stop))
+        .route("/api/screen/input", post(screen_input))
+        .route("/api/screen/screenshot", get(screen_screenshot))
+        .route("/api/screen/ws", get(screen_ws))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(axum::middleware::from_fn(local_only))
         .with_state(app)
@@ -185,12 +189,12 @@ async fn local_only(req: axum::extract::Request, next: axum::middleware::Next) -
 }
 
 // ---------------------------------------------------------------- screen mirroring
-async fn mirror_status(State(app): State<App>) -> R {
-    Ok(Json(json!(app.mirror.status())))
+async fn screen_status(State(app): State<App>) -> R {
+    Ok(Json(json!(app.screen.status())))
 }
 
 #[derive(Deserialize)]
-struct MirrorStartIn {
+struct ScreenStartIn {
     driver: Option<String>,
     udid: Option<String>,
     #[serde(default = "yes")]
@@ -200,7 +204,7 @@ fn yes() -> bool {
     true
 }
 
-async fn mirror_start(State(app): State<App>, Json(b): Json<MirrorStartIn>) -> R {
+async fn screen_start(State(app): State<App>, Json(b): Json<ScreenStartIn>) -> R {
     let (kind, connected) = {
         let d = app.devices.lock().await;
         (d.kind, d.info().map(|i| i.udid))
@@ -210,32 +214,32 @@ async fn mirror_start(State(app): State<App>, Json(b): Json<MirrorStartIn>) -> R
         None => kind,
     };
     let udid = b.udid.filter(|s| !s.is_empty()).or(connected);
-    let s = app.mirror.start(kind == DriverKind::Mock, udid, b.audio).await.map_err(dev)?;
+    let s = app.screen.start(kind == DriverKind::Mock, udid, b.audio).await.map_err(dev)?;
     Ok(Json(json!(s)))
 }
 
-async fn mirror_stop(State(app): State<App>) -> R {
-    app.mirror.stop();
-    Ok(Json(json!(app.mirror.status())))
+async fn screen_stop(State(app): State<App>) -> R {
+    app.screen.stop();
+    Ok(Json(json!(app.screen.status())))
 }
 
-async fn mirror_input(State(app): State<App>, Json(b): Json<Value>) -> R {
-    let input = crate::mirror::parse_input(&b).map_err(bad)?;
-    app.mirror.input(input).await.map_err(dev)?;
+async fn screen_input(State(app): State<App>, Json(b): Json<Value>) -> R {
+    let input = crate::screen::parse_input(&b).map_err(bad)?;
+    app.screen.input(input).await.map_err(dev)?;
     Ok(Json(json!({"ok": true})))
 }
 
-async fn mirror_screenshot(State(app): State<App>) -> Result<Response, ApiError> {
-    let png = app.mirror.screenshot().await.map_err(dev)?;
+async fn screen_screenshot(State(app): State<App>) -> Result<Response, ApiError> {
+    let png = app.screen.screenshot().await.map_err(dev)?;
     Ok(([(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, "no-store")], png).into_response())
 }
 
 /// Live picture, sound and status for the Mirror tab or another program; input goes the other way.
-async fn mirror_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgrade) -> Response {
+async fn screen_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgrade) -> Response {
     use axum::extract::ws::Message;
-    use crate::mirror::Out;
+    use crate::screen::Out;
     ws.on_upgrade(move |mut socket| async move {
-        let (mut rx, config, status) = app.mirror.subscribe();
+        let (mut rx, config, status) = app.screen.subscribe();
         let status = json!({"type": "status", "status": status}).to_string();
         if socket.send(Message::Text(status.into())).await.is_err() {
             return;
@@ -243,7 +247,7 @@ async fn mirror_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgra
         if let Some(c) = config {
             let _ = socket.send(Message::Binary(c.to_vec().into())).await;
         }
-        let _ = app.mirror.input(crate::mirror::Input::KeyFrame).await;
+        let _ = app.screen.input(crate::screen::Input::KeyFrame).await;
         // Frames only make sense from a keyframe on: skip until one arrives (also after falling behind).
         let mut need_key = true;
         loop {
@@ -260,7 +264,7 @@ async fn mirror_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgra
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                             need_key = true;
-                            let _ = app.mirror.input(crate::mirror::Input::KeyFrame).await;
+                            let _ = app.screen.input(crate::screen::Input::KeyFrame).await;
                             continue;
                         }
                         Err(_) => break,
@@ -269,8 +273,8 @@ async fn mirror_ws(State(app): State<App>, ws: axum::extract::ws::WebSocketUpgra
                 }
                 msg = socket.recv() => match msg {
                     Some(Ok(Message::Text(t))) => {
-                        let reply = match serde_json::from_str::<Value>(&t).map_err(|e| e.to_string()).and_then(|v| crate::mirror::parse_input(&v)) {
-                            Ok(i) => app.mirror.input(i).await.err(),
+                        let reply = match serde_json::from_str::<Value>(&t).map_err(|e| e.to_string()).and_then(|v| crate::screen::parse_input(&v)) {
+                            Ok(i) => app.screen.input(i).await.err(),
                             Err(e) => Some(e),
                         };
                         if let Some(e) = reply {
@@ -415,11 +419,12 @@ async fn status(State(app): State<App>) -> R {
         "feature_test": FEATURE_TEST.get(),
         "driver": d.kind.key(),
         "drivers": [{"key": "pmd3", "label": "Direct", "live": true}, {"key": "mock", "label": "Simulator (no iPhone)", "live": true}],
-        "features": {"cli_driver": false, "tunnel_helper": false},
+        "features": {"cli_driver": false, "tunnel_helper": false, "multi_device": true, "wifi": true},
         "device": d.info(),
         "live": true,
         "player": app.player.status(),
         "update": app.updater.status(),
+        "mirrors": d.mirrors_json(),
     })))
 }
 
@@ -438,13 +443,61 @@ async fn devices(State(app): State<App>, Query(q): Query<DriverQ>) -> R {
 struct ConnectIn {
     driver: Option<String>,
     udid: Option<String>,
+    connection: Option<String>,
 }
 
 async fn connect(State(app): State<App>, Json(b): Json<ConnectIn>) -> R {
     let kind = DriverKind::parse(b.driver.as_deref().unwrap_or("pmd3")).ok_or(bad("unknown driver"))?;
+    let via = Via::parse(b.connection.as_deref()).ok_or(bad("unknown connection"))?;
     app.player.stop().await;
-    let info = app.devices.lock().await.connect(kind, b.udid.filter(|s| !s.is_empty())).await.map_err(dev)?;
+    let info = app.devices.lock().await.connect(kind, b.udid.filter(|s| !s.is_empty()), via).await.map_err(dev)?;
     Ok(Json(json!({"device": info})))
+}
+
+#[derive(Deserialize)]
+struct MirrorIn {
+    udid: String,
+    connection: Option<String>,
+}
+
+/// Another iPhone follows the main one: same position, same route, from now on.
+async fn mirror_add(State(app): State<App>, Json(b): Json<MirrorIn>) -> R {
+    let via = Via::parse(b.connection.as_deref()).ok_or(bad("unknown connection"))?;
+    let kind = {
+        let d = app.devices.lock().await;
+        if let Some(why) = d.mirror_refusal(&b.udid) {
+            return Err(dev(why));
+        }
+        d.kind
+    };
+    let (info, backend) = crate::device::connect_mirror(kind, b.udid, via).await.map_err(dev)?;
+    let mut d = app.devices.lock().await;
+    let m = d.attach_mirror(info, backend).await.map_err(dev)?;
+    Ok(Json(json!({"mirror": m, "mirrors": d.mirrors_json()})))
+}
+
+#[derive(Deserialize)]
+struct ClearQ {
+    clear: Option<bool>,
+}
+
+/// Stops following; by default the phone goes back to its real location.
+async fn mirror_remove(State(app): State<App>, Path(udid): Path<String>, Query(q): Query<ClearQ>) -> R {
+    let mut d = app.devices.lock().await;
+    if !d.remove_mirror(&udid, q.clear.unwrap_or(true)).await {
+        return Err(ApiError(404, "That iPhone doesn't follow the main one.".into()));
+    }
+    Ok(Json(json!({"mirrors": d.mirrors_json()})))
+}
+
+#[derive(Deserialize)]
+struct UdidIn {
+    udid: Option<String>,
+}
+
+async fn enable_wifi(State(app): State<App>, Json(b): Json<UdidIn>) -> R {
+    let m = app.devices.lock().await.enable_wifi(b.udid.filter(|s| !s.is_empty())).await.map_err(dev)?;
+    Ok(Json(json!({"message": m})))
 }
 
 async fn disconnect(State(app): State<App>) -> R {
@@ -1227,6 +1280,148 @@ mod tests {
         assert!(held.hold && !serde_json::from_value::<WaypointIn>(json!({"lat": 1.0, "lon": 2.0})).unwrap().hold);
     }
 
+    // ------------------------------------------------ several iPhones at once (mirrors)
+    const MAIN: &str = "SIMULATED-0001";
+    const SECOND: &str = "SIMULATED-0002";
+
+    fn connect_in(udid: Option<&str>, connection: Option<&str>) -> Json<ConnectIn> {
+        Json(ConnectIn { driver: Some("mock".into()), udid: udid.map(String::from), connection: connection.map(String::from) })
+    }
+    fn mirror_in(udid: &str, connection: Option<&str>) -> Json<MirrorIn> {
+        Json(MirrorIn { udid: udid.into(), connection: connection.map(String::from) })
+    }
+    async fn two_phones() -> (App, Arc<Mutex<crate::device::mirror::Shared>>) {
+        let a = app();
+        let _ = connect(State(a.clone()), connect_in(Some(MAIN), None)).await.unwrap();
+        let r = mirror_add(State(a.clone()), mirror_in(SECOND, None)).await.unwrap_or_else(|e| panic!("{}", e.1));
+        assert_eq!(r.0["mirror"]["name"], "Simulated iPhone 2");
+        assert_eq!(r.0["mirror"]["state"], "ok");
+        let shared = a.devices.lock().await.mirrors[0].shared.clone();
+        (a, shared)
+    }
+    async fn until(f: impl Fn() -> bool) -> bool {
+        for _ in 0..300 {
+            if f() {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        false
+    }
+    fn here(lat: f64, lon: f64) -> Json<LatLonIn> {
+        Json(LatLonIn { lat, lon })
+    }
+
+    #[tokio::test]
+    async fn mirror_follows_teleport_playback_and_stop() {
+        let (a, m) = two_phones().await;
+        let st = status(State(a.clone())).await.unwrap().0;
+        assert_eq!(st["device"]["udid"], MAIN);
+        assert_eq!(st["mirrors"][0]["udid"], SECOND);
+        assert!(st["features"]["multi_device"].as_bool().unwrap() && st["features"]["wifi"].as_bool().unwrap());
+        let _ = set_location(State(a.clone()), here(51.5, -0.12)).await.unwrap();
+        assert!(until(|| m.lock().unwrap().location == Some((51.5, -0.12))).await);
+        // a route played on the main phone moves the mirror along it too
+        let start = (51.5, -0.12);
+        let end = geo::destination(start, 90.0, 300.0);
+        let s = crate::profile::ProfileSettings { default_cruise_kmh: 36.0, accel_ms2: 2.0, decel_ms2: 2.0, ..Default::default() };
+        let w = [crate::profile::Waypoint::at(start), crate::profile::Waypoint::at(end)];
+        let tl = Arc::new(crate::profile::build_timeline(&w, &[crate::profile::Leg::new(vec![start, end])], &s).unwrap());
+        a.player.load(tl, "two".into()).await;
+        a.player.set_options(Some(10.0), None, None, Some(0.2), None).unwrap();
+        a.player.play().await.unwrap();
+        assert!(until(|| a.player.status()["state"] == "finished").await);
+        assert!(until(|| m.lock().unwrap().location.is_some_and(|p| geo::haversine_m(p, end) < 1.0)).await);
+        let main_end = a.devices.lock().await.mock.location.unwrap();
+        assert!(geo::haversine_m(main_end, end) < 1.0);
+        assert!(m.lock().unwrap().history > 5, "it moved along the route, not just to the end");
+        // Stop spoofing clears every phone
+        let _ = clear_location(State(a.clone())).await.unwrap();
+        assert!(until(|| m.lock().unwrap().location.is_none()).await);
+        assert!(a.devices.lock().await.mock.location.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_slow_mirror_never_holds_up_the_main_phone() {
+        let (a, m) = two_phones().await;
+        m.lock().unwrap().delay_ms = 300;
+        let t0 = std::time::Instant::now();
+        for i in 0..6 {
+            let _ = set_location(State(a.clone()), here(51.5 + i as f64 * 1e-4, -0.12)).await.unwrap();
+        }
+        assert!(t0.elapsed() < std::time::Duration::from_millis(1200), "six sends to a 0.3 s phone would take 1.8 s");
+        let last = (51.5 + 5e-4, -0.12);
+        let main = a.devices.lock().await.mock.location.unwrap();
+        assert!((main.0 - last.0).abs() < 1e-9);
+        // the mirror skips the positions it fell behind on and ends where the main phone is
+        assert!(until(|| m.lock().unwrap().location.is_some_and(|p| (p.0 - last.0).abs() < 1e-9)).await);
+        assert!(m.lock().unwrap().sent < 6);
+    }
+
+    #[tokio::test]
+    async fn a_lost_mirror_is_marked_and_the_rest_keeps_going() {
+        let (a, m) = two_phones().await;
+        m.lock().unwrap().fail = true;
+        let _ = set_location(State(a.clone()), here(51.5, -0.12)).await.unwrap();
+        assert!(until(|| m.lock().unwrap().error.is_some()).await);
+        let st = status(State(a.clone())).await.unwrap().0;
+        assert_eq!(st["mirrors"][0]["state"], "lost");
+        assert!(st["mirrors"][0]["error"].as_str().unwrap().contains("Lost the connection"));
+        let _ = set_location(State(a.clone()), here(51.6, -0.12)).await.unwrap();
+        assert_eq!(a.devices.lock().await.mock.location, Some((51.6, -0.12)));
+        let r = mirror_remove(State(a.clone()), Path(SECOND.into()), Query(ClearQ { clear: None })).await.unwrap();
+        assert_eq!(r.0["mirrors"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn removing_a_mirror_sends_it_back_to_its_real_location() {
+        let (a, m) = two_phones().await;
+        let _ = set_location(State(a.clone()), here(51.5, -0.12)).await.unwrap();
+        assert!(until(|| m.lock().unwrap().location.is_some()).await);
+        let _ = mirror_remove(State(a.clone()), Path(SECOND.into()), Query(ClearQ { clear: None })).await.unwrap();
+        assert_eq!(m.lock().unwrap().location, None);
+        assert_eq!(a.devices.lock().await.mock.location, Some((51.5, -0.12)), "the main phone keeps its position");
+        let e = mirror_remove(State(a.clone()), Path(SECOND.into()), Query(ClearQ { clear: None })).await.unwrap_err();
+        assert_eq!(e.0, 404);
+    }
+
+    #[tokio::test]
+    async fn new_mirror_catches_up_and_rules() {
+        let a = app();
+        assert_eq!(mirror_add(State(a.clone()), mirror_in(SECOND, None)).await.unwrap_err().0, 409, "no main phone yet");
+        let _ = connect(State(a.clone()), connect_in(Some(MAIN), None)).await.unwrap();
+        let _ = set_location(State(a.clone()), here(51.5, -0.12)).await.unwrap();
+        assert_eq!(mirror_add(State(a.clone()), mirror_in(MAIN, None)).await.unwrap_err().0, 409, "that's the main phone");
+        let _ = mirror_add(State(a.clone()), mirror_in(SECOND, Some("usb"))).await.unwrap();
+        let m = a.devices.lock().await.mirrors[0].shared.clone();
+        assert!(until(|| m.lock().unwrap().location == Some((51.5, -0.12))).await, "caught up at once");
+        assert_eq!(mirror_add(State(a.clone()), mirror_in(SECOND, None)).await.unwrap_err().0, 409, "already following");
+        assert_eq!(mirror_add(State(a.clone()), mirror_in("SIMULATED-9999", None)).await.unwrap_err().0, 409);
+        assert_eq!(mirror_add(State(a.clone()), mirror_in(SECOND, Some("bluetooth"))).await.unwrap_err().0, 400);
+        // connecting the main phone to the mirrored one makes it the main phone instead
+        let _ = connect(State(a.clone()), connect_in(Some(SECOND), None)).await.unwrap();
+        let st = status(State(a.clone())).await.unwrap().0;
+        assert_eq!(st["device"]["udid"], SECOND);
+        assert_eq!(st["mirrors"], json!([]));
+        // disconnecting ends the mirrors too
+        let _ = mirror_add(State(a.clone()), mirror_in(MAIN, None)).await.unwrap();
+        let _ = disconnect(State(a.clone())).await.unwrap();
+        assert_eq!(status(State(a.clone())).await.unwrap().0["mirrors"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn wifi_tool_and_connection_field() {
+        let a = app();
+        let _ = connect(State(a.clone()), connect_in(None, Some("network"))).await.unwrap();
+        let r = enable_wifi(State(a.clone()), Json(UdidIn { udid: None })).await.unwrap();
+        assert!(r.0["message"].as_str().unwrap().starts_with("Simulator"));
+        assert_eq!(connect(State(a.clone()), connect_in(None, Some("carrier-pigeon"))).await.unwrap_err().0, 400);
+        assert_eq!(Via::parse(None), Some(Via::Auto));
+        assert_eq!(Via::parse(Some("network")), Some(Via::Network));
+        let list = a.devices.lock().await.list_devices(DriverKind::Mock).await.unwrap();
+        assert_eq!(list.iter().map(|d| d["udid"].as_str().unwrap()).collect::<Vec<_>>(), [MAIN, SECOND]);
+    }
+
     #[tokio::test]
     async fn bad_requests_are_rejected_before_routing() {
         let mut r = route();
@@ -1240,16 +1435,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mirror_routes_with_the_simulator() {
+    async fn screen_routes_with_the_simulator() {
         let a = app();
-        let e = mirror_input(State(a.clone()), Json(json!({"t": "tap", "x": 0.5, "y": 0.5}))).await.unwrap_err();
+        let e = screen_input(State(a.clone()), Json(json!({"t": "tap", "x": 0.5, "y": 0.5}))).await.unwrap_err();
         assert_eq!(e.0, 409);
-        let start = MirrorStartIn { driver: Some("mock".into()), udid: None, audio: true };
-        let s = mirror_start(State(a.clone()), Json(start)).await.unwrap_or_else(|e| panic!("{}", e.1)).0;
+        let start = ScreenStartIn { driver: Some("mock".into()), udid: None, audio: true };
+        let s = screen_start(State(a.clone()), Json(start)).await.unwrap_or_else(|e| panic!("{}", e.1)).0;
         assert_eq!((s["state"].as_str(), s["simulated"].as_bool()), (Some("on"), Some(true)));
-        assert!(mirror_input(State(a.clone()), Json(json!({"t": "text", "text": "hi"}))).await.is_ok());
-        assert_eq!(mirror_input(State(a.clone()), Json(json!({"t": "tap", "x": 2, "y": 0}))).await.unwrap_err().0, 400);
-        assert_eq!(mirror_screenshot(State(a.clone())).await.unwrap_err().0, 409);
-        assert_eq!(mirror_stop(State(a.clone())).await.unwrap_or_else(|e| panic!("{}", e.1)).0["state"], "off");
+        assert!(screen_input(State(a.clone()), Json(json!({"t": "text", "text": "hi"}))).await.is_ok());
+        assert_eq!(screen_input(State(a.clone()), Json(json!({"t": "tap", "x": 2, "y": 0}))).await.unwrap_err().0, 400);
+        assert_eq!(screen_screenshot(State(a.clone())).await.unwrap_err().0, 409);
+        assert_eq!(screen_stop(State(a.clone())).await.unwrap_or_else(|e| panic!("{}", e.1)).0["state"], "off");
     }
 }

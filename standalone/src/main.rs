@@ -12,7 +12,7 @@ mod feature_tests;
 mod geo;
 mod gmaps_links;
 mod gpx;
-mod mirror;
+mod screen;
 mod offline;
 mod player;
 mod profile;
