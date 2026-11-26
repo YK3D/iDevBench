@@ -31,6 +31,8 @@ def test_limits():
 def test_cache_keys():
     assert cache_key("planet/20261101_080013_pt/14/8186/5448.pbf") == ("planet-tiles/14/8186/5448.pbf", "tile")
     assert cache_key("planet") == ("planet.json", "fresh")
+    assert cache_key("backup_planet/20261122_124456_pt/14/8186/5448.pbf") == ("planet-tiles/14/8186/5448.pbf", "tile")
+    assert cache_key("backup_planet") == ("backup_planet.json", "fresh")
     assert cache_key("styles/dark") == ("styles/dark.json", "fresh")
     assert cache_key("fonts/Noto%20Sans%20Regular/0-255.pbf")[1] == "static"
     assert cache_key("sprites/ofm_f384/ofm@2x.png")[1] == "static"

@@ -107,6 +107,9 @@ def area_tile_count(b: Bounds, min_z: int, max_z: int) -> int:
     return tile_count(b, min_z, max_z) + relief
 
 
+PLANETS = ("planet", "backup_planet")
+
+
 def cache_key(path: str) -> Optional[tuple[str, str]]:
     """(cache file, kind) for a request path; kind is "tile", "static" or "fresh". None for paths
     that are not part of the map or try to leave the cache folder."""
@@ -115,11 +118,13 @@ def cache_key(path: str) -> Optional[tuple[str, str]]:
     parts = path.split("/")
     if any(p in ("", ".", "..") for p in parts) or not set(path) <= _ALLOWED:
         return None
-    if parts[0] == "planet" and len(parts) == 5 and parts[4].endswith(".pbf"):
+    # OpenFreeMap's styles name "backup_planet" instead of "planet" while it rebuilds the map: the same
+    # tiles, so both share the cache
+    if parts[0] in PLANETS and len(parts) == 5 and parts[4].endswith(".pbf"):
         # planet/<version>/z/x/y.pbf: kept without the weekly version, so areas survive updates
         return f"{TILE_PREFIX}{parts[2]}/{parts[3]}/{parts[4]}", "tile"
-    if parts == ["planet"]:
-        return "planet.json", "fresh"
+    if len(parts) == 1 and parts[0] in PLANETS:
+        return f"{parts[0]}.json", "fresh"
     if parts[0] == "styles" and len(parts) == 2:
         return f"{path}.json", "fresh"
     if parts[0] == "natural_earth":
