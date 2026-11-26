@@ -101,6 +101,9 @@ Both have the same look and features (apart from the differences above), and bot
 
 Let an AI agent use your iPhone: it can see the screen, tap and type, set the location and drive routes, while iDevBench is open.
 
+<p align="center"><a href="https://idevbench.vercel.app/#phone"><img src="docs/screenshots/agent.webp" width="900" alt="Claude Code, connected to iDevBench, is asked to drive from the current location to the airport and check it on the screen: it finds Heathrow, starts a car route, opens Find My on the mirrored iPhone and sees it moving"></a><br>
+<sub>Claude Code drives the iPhone to Heathrow and checks it in Find My. Recorded with the app's simulated iPhone, so the phone screen is a stand-in; the app and the tool calls are real. More on the <a href="https://idevbench.vercel.app/#phone">website</a>.</sub></p>
+
 <table><tr>
 <td align="center"><img src="docs/logos/claude.svg" width="36" height="36" alt=""><br>Claude Code<br>Claude Desktop</td>
 <td align="center"><img src="docs/logos/codex.svg" width="36" height="36" alt=""><br>OpenAI Codex</td>

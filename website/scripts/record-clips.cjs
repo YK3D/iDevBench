@@ -148,9 +148,12 @@ async function record(page, name, body, { readme = false } = {}) {
   await wait(page, 200);
   // ffconcat with each frame shown until the next one arrives (the screencast only sends changes)
   const lines = ["ffconcat version 1.0"];
+  let total = 0; // the clip's length, which speed() makes shorter than the time it took
   frames.forEach((fr, i) => {
     const next = i + 1 < frames.length ? frames[i + 1].t : Math.max(ended, fr.t + 0.04);
-    lines.push(`file '${fr.file}'`, `duration ${Math.max(0.001, (next - fr.t) / speedAt(fr.wall)).toFixed(4)}`);
+    const d = Math.max(0.001, (next - fr.t) / speedAt(fr.wall));
+    total += d;
+    lines.push(`file '${fr.file}'`, `duration ${d.toFixed(4)}`);
   });
   lines.push(`file '${frames[frames.length - 1].file}'`);
   const list = path.join(dir, "list.txt");
@@ -159,7 +162,7 @@ async function record(page, name, body, { readme = false } = {}) {
   const vf = "scale=1280:-2:flags=lanczos,fps=30,format=yuv420p";
   ff("-vf", vf, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "36", "-row-mt", "1", "-an", path.join(OUT, `${name}.webm`));
   ff("-vf", vf, "-c:v", "libx264", "-preset", "slow", "-crf", "27", "-movflags", "+faststart", "-an", path.join(OUT, `${name}.mp4`));
-  ff("-vf", "scale=1280:-2", "-frames:v", "1", "-ss", String(Math.max(0, ended - started - 0.1)), "-c:v", "libwebp", "-quality", "80", path.join(OUT, `${name}-poster.webp`));
+  ff("-vf", "scale=1280:-2", "-frames:v", "1", "-ss", String(Math.max(0, total - 0.1)), "-c:v", "libwebp", "-quality", "80", path.join(OUT, `${name}-poster.webp`));
   if (readme) {
     // the README's animation: smaller and at 15 fps so GitHub shows it quickly
     ff("-vf", "fps=15,scale=900:-2:flags=lanczos", "-c:v", "libwebp_anim", "-loop", "0", "-quality", "70", "-compression_level", "6", README_ANIM);
