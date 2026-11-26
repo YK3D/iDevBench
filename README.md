@@ -2,15 +2,15 @@
 
 <h1 align="center">iDevBench</h1>
 
-<p align="center"><b>A free Windows toolkit for working with your iPhone over USB, with no jailbreak and no Mac.</b><br>
-Set the iPhone's GPS location: teleport anywhere, drive routes that follow real roads at realistic speeds (with bends, roundabouts and braking), replay GPX files, or walk around live with the keyboard. Mirror the iPhone's screen and sound on your PC, control it with the mouse and keyboard, and record it. Other programs can do the same through a local API. No accounts, no telemetry.</p>
+<p align="center"><b>A free, open-source Windows workbench for your iPhone: fake its GPS location, mirror and control its screen, and let AI agents use it.</b><br>
+Over USB, with no jailbreak and no Mac. No accounts, no telemetry.</p>
 
 <p align="center"><sub>iDevBench was previously called <i>Location Spoofer</i>. Updating keeps your settings, favourites and routes.</sub></p>
 
 <p align="center">
   <a href="https://idevbench.vercel.app"><b>Website and live demo</b></a> ·
-  <a href="https://github.com/YK3D/iPhone-location-spoofer/releases?q=standalone&expanded=true"><b>⬇ Download iDevBench</b></a> ·
-  <a href="https://github.com/YK3D/iPhone-location-spoofer/releases?q=browser&expanded=true">Browser edition</a> ·
+  <a href="https://github.com/YK3D/iDevBench/releases?q=standalone&expanded=true"><b>⬇ Download iDevBench</b></a> ·
+  <a href="https://github.com/YK3D/iDevBench/releases?q=browser&expanded=true">Browser edition</a> ·
   <a href="#getting-started">Getting started</a> ·
   <a href="#features">Features</a> ·
   <a href="https://apps.microsoft.com/detail/9np83lwlpz9k">Apple Devices (required)</a> ·
@@ -21,11 +21,21 @@ Set the iPhone's GPS location: teleport anywhere, drive routes that follow real 
 <p align="center"><a href="https://idevbench.vercel.app"><img src="docs/screenshots/demo.webp" width="900" alt="The app building a car route across London: two checkpoints are placed, the build shows each step, then three alternative routes appear labelled with their extra time"></a><br>
 <sub>Try a smaller version of the app in your browser at <a href="https://idevbench.vercel.app">idevbench.vercel.app</a>.</sub></p>
 
+## At a glance
+
+| 📍 **GPS location** | 📱 **Screen mirroring** (iOS 27+) | 🤖 **AI agents** |
+|---|---|---|
+| Teleport anywhere: click the map, search, or paste a Google Maps link | See the iPhone's screen live, with its sound | Claude, Codex, Cursor, Gemini, Copilot and others can use the phone for you |
+| Drive routes on real roads at realistic speeds, with bends, roundabouts and braking | Click to tap, drag to swipe, scroll, Ctrl + wheel to pinch, type with your keyboard | One prompt to paste, or one button for Claude Desktop ([how](#ai-agents)) |
+| Walk, cycle, sail or go straight; several route options to compare | Home, Lock, Volume, Siri, app switcher, Control Centre and Back buttons | They take screenshots, tap, type, set the location and drive routes |
+| Replay GPX files, or move live with a joystick (W A S D) | Screenshots and recordings with sound; the picture turns with the phone | Built-in guide, and a passcode rule: only if you give it |
+| Offline maps, dark and light themes, keyboard shortcuts | Live stats: frame rate, and the iPhone's CPU, memory, GPU and temperature | A local API for your own scripts ([docs](docs/API.md)) |
+
 > **Use it responsibly.** Location simulation is meant for testing apps, demos and privacy. Many games, dating, banking, school, work and delivery apps forbid fake locations and may suspend your account. Apps can also detect simulation or use Wi-Fi, IP address and motion sensors, which this tool does not change. See the [Terms of Use](TERMS.md).
 
 ## Contents
 
-[Which download](#which-download-should-i-use) · [Getting started](#getting-started) · [Features](#features) · [Screenshots](#screenshots) · [Updates](#updates-and-test-builds) · [Google Maps](#optional-google-maps) · [Privacy](#privacy) · [Licence](#licence)
+[Which download](#which-download-should-i-use) · [Getting started](#getting-started) · [AI agents](#ai-agents) · [Features](#features) · [Screenshots](#screenshots) · [Updates](#updates-and-test-builds) · [Google Maps](#optional-google-maps) · [Privacy](#privacy) · [Licence](#licence)
 
 ## Which download should I use?
 
@@ -33,19 +43,19 @@ Most people should use the **standalone app**. The browser edition exists for iP
 
 | | **Standalone app** (recommended) | Browser edition |
 |---|---|---|
-| Download | [`LocationSpooferStandalone.exe`](https://github.com/YK3D/iPhone-location-spoofer/releases?q=standalone&expanded=true) | [`LocationSpooferBrowser.exe`](https://github.com/YK3D/iPhone-location-spoofer/releases?q=browser&expanded=true) |
+| Download | [`iDevBench.exe`](https://github.com/YK3D/iDevBench/releases?q=standalone&expanded=true) | [`iDevBenchBrowser.exe`](https://github.com/YK3D/iDevBench/releases?q=browser&expanded=true) |
 | Window | Its own app window | Opens in your web browser, plus a console window |
 | Size and start-up | Under 20 MB, starts instantly | About 80 MB, 10–20 s to start |
 | iOS 17.4 and newer, iOS 16 and older | ✅ | ✅ |
 | iOS 17.0–17.3 | ❌ | ✅ (needs administrator permission once per session) |
 | Screen mirroring and control (iOS 27 and newer) | ✅ with sound | ✅, sound only on a Mac |
 
-Both have the same look and features (apart from the differences above), and both update themselves. The download files keep their original names (`LocationSpooferStandalone.exe` and `LocationSpooferBrowser.exe`) so copies that are already installed keep updating.
+Both have the same look and features (apart from the differences above), and both update themselves. Copies installed under the old names (`LocationSpooferStandalone.exe`, `LocationSpooferBrowser.exe`) keep updating too.
 
 ## Getting started
 
 1. **Install Apple's iPhone software.** Get [**Apple Devices** from the Microsoft Store](https://apps.microsoft.com/detail/9np83lwlpz9k) (free, made by Apple; iTunes also works). It lets Windows talk to an iPhone. You don't need to keep its window open.
-2. **Download** the [standalone app](https://github.com/YK3D/iPhone-location-spoofer/releases?q=standalone&expanded=true). Save `LocationSpooferStandalone.exe` in a folder you own, such as Desktop or Documents, so it can update itself.
+2. **Download** the [standalone app](https://github.com/YK3D/iDevBench/releases?q=standalone&expanded=true). Save `iDevBench.exe` in a folder you own, such as Desktop or Documents, so it can update itself.
 3. **Run it.** Windows may show "Windows protected your PC" because the app is not code-signed yet. Choose **More info → Run anyway**.
 4. **Follow the setup guide** that opens on first run:
    1. Plug in the iPhone, unlock it and tap **Trust**.
@@ -53,6 +63,7 @@ Both have the same look and features (apart from the differences above), and bot
    3. On the iPhone, turn on *Settings › Privacy & Security › Developer Mode* and restart it.
    4. Press **Connect**.
 5. **Pick a place and press Teleport here**, or build a route and press **Play**. Press **Stop spoofing** when you're done.
+6. **Mirror the screen** (iOS 27 or newer): switch to **Mirroring** at the top of the side menu and press **Start mirroring** with the iPhone unlocked.
 
 <details>
 <summary><b>Requirements</b></summary>
@@ -82,9 +93,40 @@ Both have the same look and features (apart from the differences above), and bot
 | Mirroring: the picture stays black | Unlock the iPhone. Some apps hide their content from screen mirroring, for example video streaming apps |
 | Mirroring: the picture freezes | It restarts by itself after a few seconds; press **Restart stream** next to the screen to do it at once |
 | Mirroring: the picture is sideways | Press **Rotate** next to the screen |
-| Something else | [Open an issue](https://github.com/YK3D/iPhone-location-spoofer/issues/new) and describe what happened, with the app's version (*Settings › About*) |
+| Something else | [Open an issue](https://github.com/YK3D/iDevBench/issues/new) and describe what happened, with the app's version (*Settings › About*) |
 
 </details>
+
+## AI agents
+
+Let an AI agent use your iPhone: it can see the screen, tap and type, set the location and drive routes, while iDevBench is open.
+
+<table><tr>
+<td align="center"><img src="docs/logos/claude.svg" width="36" height="36" alt=""><br>Claude Code<br>Claude Desktop</td>
+<td align="center"><img src="docs/logos/codex.svg" width="36" height="36" alt=""><br>OpenAI Codex</td>
+<td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/logos/cursor-dark.svg"><img src="docs/logos/cursor.svg" width="36" height="36" alt=""></picture><br>Cursor</td>
+<td align="center"><img src="docs/logos/gemini.svg" width="36" height="36" alt=""><br>Gemini CLI</td>
+<td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/logos/githubcopilot-dark.svg"><img src="docs/logos/githubcopilot.svg" width="36" height="36" alt=""></picture><br>GitHub Copilot<br>(VS Code)</td>
+<td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/logos/windsurf-dark.svg"><img src="docs/logos/windsurf.svg" width="36" height="36" alt=""></picture><br>Windsurf</td>
+</tr></table>
+
+…and any other app that supports MCP servers.
+
+1. In iDevBench, open **Settings › AI agents** (or press **Connect an AI agent** in the Mirroring section).
+2. Press **Copy prompt** and paste it into your agent once. The agent adds iDevBench to its own settings.
+3. **Claude Desktop** can't do that from a chat: press **Add to Claude Desktop** instead, then quit Claude and open it again.
+
+Claude Code can also install it as a plugin:
+
+```bash
+claude plugin marketplace add YK3D/iDevBench
+```
+
+```bash
+claude plugin install idevbench@idevbench
+```
+
+The agent reads a built-in guide on how to use the phone safely. It only enters your passcode if you ask it to and give it the passcode. Screenshots go to the AI service the agent runs on. Details: [docs/API.md](docs/API.md#ai-agents-mcp).
 
 ## Features
 
@@ -231,12 +273,8 @@ The app has no accounts, no analytics and no telemetry. Your favourites, routes 
 
 ## Licence
 
-iDevBench is free to download and use, but it is **not open source**: © 2026 YK3D, all rights reserved.
+iDevBench is **open source**: © 2026 YK3D, under the [MIT License](LICENSE).
 
-* You may use the app, read its code and suggest changes through pull requests.
-* You may **not** copy its code, interface or icon into other projects, redistribute it, sell it or publish modified versions **without written permission**, and any permitted use must credit "Location Spoofer by YK3D". See [LICENSE](LICENSE).
 * The browser edition is licensed under the [GNU GPL v3 or later](browser/LICENSE) with an attribution requirement ([browser/NOTICE](browser/NOTICE)), because it includes GPL-licensed libraries.
-* Third-party components keep their own licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-* To ask for permission, [open an issue](https://github.com/YK3D/iPhone-location-spoofer/issues/new). Security problems: see [SECURITY.md](SECURITY.md). Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-iDevBench is an independent project and is not affiliated with, endorsed by or sponsored by Apple Inc. or Google LLC. iPhone is a trademark of Apple Inc.; Google Maps is a trademark of Google LLC.
+* Third-party components keep their own licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The AI app logos above come from [LobeHub Icons](https://github.com/lobehub/lobe-icons) and belong to their owners.
+* Security problems: see [SECURITY.md](SECURITY.md). Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).

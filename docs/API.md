@@ -118,7 +118,7 @@ iDevBench is a [Model Context Protocol](https://modelcontextprotocol.io) server:
 **Claude Code plugin:** this repository is a plugin marketplace.
 
 ```bash
-claude plugin marketplace add YK3D/iPhone-location-spoofer
+claude plugin marketplace add YK3D/iDevBench
 ```
 
 ```bash
@@ -128,7 +128,7 @@ claude plugin install idevbench@idevbench
 **By hand:** apps that connect to a URL use `http://127.0.0.1:8766/mcp` (the browser edition: port 8765), for example `claude mcp add --transport http --scope user idevbench http://127.0.0.1:8766/mcp`. Apps that start a program use the app itself with `--mcp`, for example in Claude Desktop's `claude_desktop_config.json`:
 
 ```json
-{ "mcpServers": { "idevbench": { "command": "C:\\path\\to\\LocationSpooferStandalone.exe", "args": ["--mcp"] } } }
+{ "mcpServers": { "idevbench": { "command": "C:\\path\\to\\iDevBench.exe", "args": ["--mcp"] } } }
 ```
 
 `--mcp` only passes messages to the app that is already open (either edition); it opens no window.

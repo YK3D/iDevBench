@@ -36,8 +36,9 @@ from . import __version__
 
 log = logging.getLogger(__name__)
 
-REPO = os.environ.get("SPOOFER_UPDATE_REPO", "YK3D/iPhone-location-spoofer")
-ASSET = "LocationSpooferBrowser.exe"
+REPO = os.environ.get("SPOOFER_UPDATE_REPO", "YK3D/iDevBench")
+ASSET = "iDevBenchBrowser.exe"
+LEGACY_ASSET = "LocationSpooferBrowser.exe"  # the name releases used before iDevBench; older releases have only this one
 TAG_PREFIX = "browser-v"
 CHECK_EVERY_S = 6 * 3600
 ALLOWED_HOSTS = ("github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
@@ -257,7 +258,8 @@ class Updater:
                         self.state = "available"
                         return self.status()
                     assets = {a.get("name"): a.get("browser_download_url") for a in rel.get("assets", [])}
-                    exe_url, sum_url = assets.get(ASSET), assets.get(ASSET + ".sha256")
+                    name = next((n for n in (ASSET, LEGACY_ASSET) if assets.get(n) and assets.get(n + ".sha256")), ASSET)
+                    exe_url, sum_url = assets.get(name), assets.get(name + ".sha256")
                     if not exe_url or not sum_url:
                         raise RuntimeError(f"Release {tag} has no {ASSET} and checksum file")
                     for u in (exe_url, sum_url):

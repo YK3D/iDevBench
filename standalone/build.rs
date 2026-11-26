@@ -9,7 +9,7 @@ fn main() {
         res.set("ProductName", "iDevBench");
         res.set("FileDescription", "iDevBench");
         res.set("CompanyName", "YK3D");
-        res.set("LegalCopyright", "Copyright (c) 2026 YK3D. All rights reserved. See LICENSE.");
+        res.set("LegalCopyright", "Copyright (c) 2026 YK3D. MIT License.");
         if let Err(e) = res.compile() {
             println!("cargo:warning=could not embed the Windows icon: {e}");
         }

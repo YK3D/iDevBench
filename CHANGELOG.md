@@ -1,8 +1,8 @@
 # Changelog
 
 Releases are published separately for the two editions:
-[standalone app](https://github.com/YK3D/iPhone-location-spoofer/releases?q=standalone&expanded=true) (`standalone-v…`) and
-[browser edition](https://github.com/YK3D/iPhone-location-spoofer/releases?q=browser&expanded=true) (`browser-v…`).
+[standalone app](https://github.com/YK3D/iDevBench/releases?q=standalone&expanded=true) (`standalone-v…`) and
+[browser edition](https://github.com/YK3D/iDevBench/releases?q=browser&expanded=true) (`browser-v…`).
 Test builds from the `dev` branch are marked as pre-releases.
 
 ## Unreleased (dev)
@@ -12,6 +12,10 @@ Test builds from the `dev` branch are marked as pre-releases.
 - Wi-Fi connections: *Device tools › Connect over* (Automatic, USB cable only, Wi-Fi only) and *Allow Wi-Fi connection*, which turns on the phone's "Show this iPhone when on Wi-Fi" setting. The device list shows how each phone can be reached (USB, Wi-Fi, or both). In the browser version, a second iOS 17+ phone or an iOS 17+ phone over Wi-Fi needs the tunnel helper. Bluetooth isn't possible.
 
 ### New
+- **Open source:** iDevBench is now under the MIT License (the browser edition stays GPL v3 or later). The repository is now [YK3D/iDevBench](https://github.com/YK3D/iDevBench).
+- **New file names:** the downloads are now `iDevBench.exe` and `iDevBenchBrowser.exe`. Copies installed under the old names keep updating.
+- The setup guide has a step for screen mirroring.
+- Fixed: in the Mirroring section, a hidden side menu could not be shown again. The phone shown before the picture arrives is now in shades of grey, with its side buttons where an iPhone has them.
 - **Screen mirroring (iOS 27 and newer):** the iPhone's screen in its own *Mirroring* section (switch at the top of the side menu), over the USB cable. Click to tap, drag to swipe, scroll with the mouse wheel, Ctrl + wheel or a trackpad pinch to zoom, right-click for Home, and type from your keyboard (Ctrl works as ⌘). Buttons next to the screen press Home, Lock, Volume, Mute and Siri and do the app switcher, Control Centre, notifications and Back gestures. Over the screen the pointer is a small dot that dips when you click, and swipes leave a faint trail. The phone's name and iOS version are shown above it, and an iPhone home screen stands in until the picture arrives. The picture turns when the phone does (or with *Rotate*). The standalone app also plays the iPhone's sound. Save screenshots, or record the screen with its sound as a video, to Downloads or a folder chosen with *Browse* in *Settings › Mirroring*. *Stats* shows the stream's frame rate, data rate and delay, and the iPhone's CPU, memory, GPU, battery and temperature. A frozen picture restarts by itself after a few seconds, or at once with *Restart stream*.
 - **Local API:** other programs on your computer can set the location, watch the screen, tap, swipe and type through the app while it is open (websites can't). See [docs/API.md](docs/API.md).
 - **AI agents:** iDevBench is an MCP server, so Claude, Codex, Cursor and other AI apps can use the phone through it: see and control the screen, set the location, drive routes, play tracks and use the joystick. Setting it up is one prompt to paste into the agent (*Settings › AI agents*), or one button for Claude Desktop; there is also a Claude Code plugin. The agent gets a guide on how to use the phone, and only enters the passcode if you ask it to and give it the passcode. See [docs/API.md](docs/API.md#ai-agents-mcp).

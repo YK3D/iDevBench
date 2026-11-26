@@ -6,7 +6,7 @@
     "name": "YK3D"
   },
   "homepage": "https://idevbench.vercel.app",
-  "repository": "https://github.com/YK3D/iPhone-location-spoofer",
+  "repository": "https://github.com/YK3D/iDevBench",
   "keywords": [
     "iphone",
     "ios",
@@ -16,8 +16,8 @@
     "automation"
   ],
   "icon": ".claude-plugin/icon.png",
-  "documentationUrl": "https://github.com/YK3D/iPhone-location-spoofer/blob/main/docs/API.md#ai-agents-mcp",
-  "supportUrl": "https://github.com/YK3D/iPhone-location-spoofer/issues",
+  "documentationUrl": "https://github.com/YK3D/iDevBench/blob/main/docs/API.md#ai-agents-mcp",
+  "supportUrl": "https://github.com/YK3D/iDevBench/issues",
   "privacyPolicyUrl": "https://idevbench.vercel.app/privacy",
   "termsOfServiceUrl": "https://idevbench.vercel.app/terms"
 }

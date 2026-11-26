@@ -72,10 +72,12 @@ The app is an independent project. It is **not affiliated with, endorsed by or s
 
 ## 10. Ownership and licences
 
-The app, its source code, interface, icon and documentation are owned by YK3D and protected by copyright. You may use the app for free, but you may not copy its code or artwork into other projects, redistribute it, sell it or publish modified versions without written permission, and any permitted use must credit YK3D in the way the licences describe. The exact rules are in the licences:
+iDevBench is open source. Its code, interface, icon and documentation are © YK3D and you may use, copy, change and share them under the licences:
 
-* the standalone app, the shared interface, the icon and the documentation: the Location Spoofer License ([LICENSE](LICENSE)), which keeps the app's former name;
-* the browser version: the GNU GPL v3 or later with additional terms that require the same credit ([browser/LICENSE](browser/LICENSE), [browser/NOTICE](browser/NOTICE)), because it is distributed together with GPL-licensed libraries.
+* the standalone app, the shared interface, the icon, the website and the documentation: the MIT License ([LICENSE](LICENSE));
+* the browser version: the GNU GPL v3 or later with additional terms that ask for credit ([browser/LICENSE](browser/LICENSE), [browser/NOTICE](browser/NOTICE)), because it is distributed together with GPL-licensed libraries.
+
+The licences don't let you present your own version as the official iDevBench or use the names "iDevBench" or "YK3D" or the icon as the name or logo of another product.
 
 Those licences govern copying, modifying and redistributing the code. These terms govern using the app.
 
@@ -85,4 +87,4 @@ The app can update itself from this repository's GitHub releases. Releases are c
 
 ## 12. Contact
 
-Report problems, or ask for permission to use the code, at <https://github.com/YK3D/iPhone-location-spoofer/issues>. Report security issues as described in [SECURITY.md](SECURITY.md).
+Report problems, or ask for permission to use the code, at <https://github.com/YK3D/iDevBench/issues>. Report security issues as described in [SECURITY.md](SECURITY.md).

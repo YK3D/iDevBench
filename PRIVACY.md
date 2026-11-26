@@ -2,7 +2,7 @@
 
 _Last updated: 25 November 2026_
 
-This policy covers both editions of iDevBench, formerly called Location Spoofer: the standalone app (`LocationSpooferStandalone.exe`) and the browser version (`LocationSpooferBrowser.exe` or run from source). Together they are called "the app".
+This policy covers both editions of iDevBench, formerly called Location Spoofer: the standalone app (`iDevBench.exe`, formerly `LocationSpooferStandalone.exe`) and the browser version (`iDevBenchBrowser.exe`, formerly `LocationSpooferBrowser.exe`, or run from source). Together they are called "the app".
 
 ## The short version
 
@@ -68,4 +68,4 @@ Changes to this policy are published in this repository with a new "Last updated
 
 ## Contact
 
-Questions about privacy can be raised as an issue on the project's GitHub page: <https://github.com/YK3D/iPhone-location-spoofer/issues>.
+Questions about privacy can be raised as an issue on the project's GitHub page: <https://github.com/YK3D/iDevBench/issues>.

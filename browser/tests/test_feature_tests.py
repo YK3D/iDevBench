@@ -42,7 +42,7 @@ def fake_github(password: str, served: list):
 
     def handler(req: httpx.Request) -> httpx.Response:
         name = req.url.path.rsplit("/", 1)[-1]
-        assert req.url.path.startswith("/YK3D/iPhone-location-spoofer/releases/download/feature-tests/")
+        assert req.url.path.startswith("/YK3D/iDevBench/releases/download/feature-tests/")
         served.append(name)
         return httpx.Response(200, content=files[name]) if name in files else httpx.Response(404)
     return httpx.MockTransport(handler)
@@ -51,7 +51,7 @@ def fake_github(password: str, served: list):
 def test_unlock_list_open_and_lock(tmp_path):
     async def run():
         served, launched = [], []
-        ft = FeatureTests(tmp_path, "YK3D/iPhone-location-spoofer", launcher=lambda *a: launched.append(a),
+        ft = FeatureTests(tmp_path, "YK3D/iDevBench", launcher=lambda *a: launched.append(a),
                           transport=fake_github("s3cret", served))
         assert await ft.list() == {"locked": True}
         with pytest.raises(FeatureTestError, match="Unlock"):
@@ -63,7 +63,7 @@ def test_unlock_list_open_and_lock(tmp_path):
         assert got["locked"] is False and got["builds"][0]["pr"] == 14 and "asset" not in got["builds"][0]
         assert (tmp_path / "feature-tests" / "access.key").read_text() == "s3cret"
         # a new start remembers the password
-        ft = FeatureTests(tmp_path, "YK3D/iPhone-location-spoofer", launcher=lambda *a: launched.append(a),
+        ft = FeatureTests(tmp_path, "YK3D/iDevBench", launcher=lambda *a: launched.append(a),
                           transport=fake_github("s3cret", served))
         assert (await ft.list())["builds"][0]["title"] == "New engine"
         for _ in range(300):  # the background download makes the build ready
@@ -86,7 +86,7 @@ def test_unlock_list_open_and_lock(tmp_path):
 
 def test_not_published_yet(tmp_path):
     async def run():
-        ft = FeatureTests(tmp_path, "YK3D/iPhone-location-spoofer", launcher=lambda *a: None,
+        ft = FeatureTests(tmp_path, "YK3D/iDevBench", launcher=lambda *a: None,
                           transport=httpx.MockTransport(lambda r: httpx.Response(404)))
         with pytest.raises(FeatureTestError) as e:
             await ft.unlock("x", remember=False)

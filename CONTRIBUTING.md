@@ -1,10 +1,10 @@
 # Contributing
 
-Bug reports and ideas are welcome as [GitHub issues](https://github.com/YK3D/iPhone-location-spoofer/issues). You don't need to know how to code: describe what you did, what you expected and what happened, and include the app's version (*Settings › About*).
+Bug reports and ideas are welcome as [GitHub issues](https://github.com/YK3D/iDevBench/issues). You don't need to know how to code: describe what you did, what you expected and what happened, and include the app's version (*Settings › About*).
 
 ## Licence of contributions
 
-iDevBench (formerly Location Spoofer) is source-available, not open source (see [LICENSE](LICENSE)). By opening a pull request you confirm that you have the right to submit the change, and you grant YK3D the licence described in section 4 of [LICENSE](LICENSE), so the change can be included and relicensed with the app. You keep the copyright in your contribution and are credited in the history.
+iDevBench is open source: the MIT License ([LICENSE](LICENSE)) for everything except `browser/`, which is GPL-3.0-or-later with attribution terms ([browser/LICENSE](browser/LICENSE), [browser/NOTICE](browser/NOTICE)). By opening a pull request you confirm that you have the right to submit the change and that it is licensed under the licence of the files it changes. You keep the copyright in your contribution and are credited in the history.
 
 ## Feature tests
 
@@ -19,8 +19,8 @@ What this protects: the builds and the list of builds. The pull requests and the
 To try a feature test from source instead:
 
 ```bash
-git clone https://github.com/YK3D/iPhone-location-spoofer.git
-cd iPhone-location-spoofer
+git clone https://github.com/YK3D/iDevBench.git
+cd iDevBench
 git fetch origin pull/<number>/head:test && git checkout test
 
 # standalone app (needs Rust: https://rustup.rs)

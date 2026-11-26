@@ -1,5 +1,5 @@
 //! iDevBench (formerly Location Spoofer) — standalone desktop app.
-//! Copyright (c) 2026 YK3D. All rights reserved. Licensed under the Location Spoofer License (LICENSE).
+//! Copyright (c) 2026 YK3D. MIT License (LICENSE).
 //!
 //! A local HTTP server (axum) serves the UI and its JSON API on 127.0.0.1; a native window
 //! (WebView2 on Windows) shows it. With `--no-window` (or without the `gui` feature) the system
