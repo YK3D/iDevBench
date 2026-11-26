@@ -6,7 +6,7 @@ import { fetchReleaseList, pickReleases } from "../src/lib/release-pick.js";
 
 export default async function handler(req, res) {
   try {
-    const data = pickReleases(await fetchReleaseList(process.env.GITHUB_TOKEN, "location-spoofer-website"));
+    const data = pickReleases(await fetchReleaseList(process.env.GITHUB_TOKEN, "idevbench-website"));
     res.setHeader("Cache-Control", "public, max-age=60, s-maxage=300, stale-while-revalidate=86400");
     res.status(200).json(data);
   } catch (e) {

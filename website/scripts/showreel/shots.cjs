@@ -185,7 +185,101 @@ module.exports = ({ take, has, footage, card, logo, fit, bound, timeOf, FULL, FP
     shots.push(s);
   }
 
+  if (has("mirror")) shots.push(card("See its [screen.]", { dur: 1150, gap: 170 }));
+
+  // ---- 6. Mirroring: the Mirroring section, Start mirroring, the iPhone's screen
+  if (has("mirror")) {
+    const tk = take("mirror");
+    const [pTab, pStart] = tk.presses;
+    const s = footage("mirror", { from: Math.max(0, pTab - 14), fadeIn: 260 });
+    const modes = fit(tk.mark("modes").rect, { pad: 60, maxZ: 2.6 });
+    const start = fit(tk.mark("start").rect, { pad: 80, maxZ: 2.6 });
+    const ph = tk.mark("phone").rect;
+    const phone = bound({ x: ph.x + ph.w / 2, y: 400, z: 1.06 });
+    const tOn = timeOf(s, tk.mark("phone").f);
+    s.cam = [
+      { t: 0, ...zoom(modes, 1.08) },
+      { t: timeOf(s, pTab) + 120, ...modes, ease: "out" },
+      { t: timeOf(s, pStart) - 380, ...zoom(modes, 1.02), ease: "linear" },
+      { t: timeOf(s, pStart) - 60, ...start, ease: "whip" },
+      { t: tOn - 60, ...zoom(start, 1.04), ease: "linear" },
+      { t: tOn + 520, ...phone, ease: "whip" },
+      { t: tOn + 1500, ...zoom(phone, 1.03), ease: "linear" },
+    ];
+    s.dur = Math.min(tOn + 1700, timeOf(s, tk.frames.length - 1));
+    s.fadeOut = 260;
+    shots.push(s);
+  }
+
+  if (has("agent-route")) shots.push(card("Or hand it to an [AI agent.]", { dur: 1350, gap: 150 }));
+
+  // The agent's terminal and the iPhone: read the prompt as it's typed, follow the tool calls, then
+  // look at the phone when the agent touches it.
+  const lower = (r, h) => ({ x: r.x, y: r.y + r.h - h, w: r.w, h });
+  // ---- 7. "create a route ... confirm from screen mirroring"
+  if (has("agent-route")) {
+    const tk = take("agent-route");
+    const s = footage("agent-route", { from: 0, fadeIn: 260, pointer: false });
+    const termR = tk.mark("term").rect, inputR = tk.mark("input").rect, ph = tk.mark("phone").rect;
+    speedUp(s, [[tk.mark("input").f + 4, 1.3], [tk.mark("sent").f + 6, 1.5], [tk.mark("tap-line").f - 4, 1], [tk.mark("found").f + 20, 1.2], [tk.mark("answer").f - 2, 1]]);
+    const typing = fit({ x: termR.x, y: inputR.y - 150, w: termR.w, h: inputR.h + 190 }, { pad: 16 });
+    const log = fit(lower(termR, 470), { pad: 14 });
+    const phoneTop = fit({ x: ph.x, y: ph.y + 40, w: ph.w, h: ph.h * 0.56 }, { pad: 24 });
+    const both = fit({ x: termR.x, y: termR.y, w: ph.x + ph.w - termR.x, h: termR.h }, { pad: 10 });
+    const t = (m, d = 0) => timeOf(s, tk.mark(m).f) + d;
+    s.cam = [
+      { t: 0, ...both },
+      { t: t("input", -40), ...both, ease: "linear" },
+      { t: t("input", 520), ...typing, ease: "inOut" },
+      { t: t("typed"), ...zoom(typing, 1.03), ease: "linear" },
+      { t: t("sent", 420), ...log, ease: "whip" },
+      { t: t("tap-line", -40), ...zoom(log, 1.03), ease: "linear" },
+      { t: t("tap-line", 420), ...phoneTop, ease: "whip" },
+      { t: t("found", 1200), ...zoom(phoneTop, 1.05), ease: "linear" },
+      { t: t("answer", -30), ...zoom(phoneTop, 1.05), ease: "linear" },
+      { t: t("answer", 420), ...log, ease: "whip" },
+      { t: t("answer", 1150), ...zoom(log, 1.03), ease: "linear" },
+    ];
+    s.dur = Math.min(t("answer", 1300), timeOf(s, tk.frames.length - 1));
+    shots.push(s);
+  }
+
+  // ---- 8. "now organize my home screen into folders" (the drags after the first two at 3x)
+  if (has("agent-folders")) {
+    const tk = take("agent-folders");
+    const s = footage("agent-folders", { from: 0, pointer: false });
+    const termR = tk.mark("input").rect, ph = tk.mark("phone").rect;
+    const term = take("agent-route").mark("term").rect;
+    speedUp(s, [[tk.mark("input").f + 4, 1.3], [tk.mark("home-line").f - 4, 1], [tk.mark("jiggle").f + 6, 1.5], [tk.mark("fast").f, 4.5], [tk.mark("slow").f, 1.2], [tk.mark("answer").f - 2, 1]]);
+    const typing = fit({ x: term.x, y: termR.y - 150, w: term.w, h: termR.h + 190 }, { pad: 16 });
+    const log = fit(lower(term, 470), { pad: 14 });
+    const phone = fit({ x: ph.x, y: ph.y, w: ph.w, h: ph.h }, { pad: 16 });
+    const grid = fit({ x: ph.x, y: ph.y + 20, w: ph.w, h: ph.h * 0.72 }, { pad: 18 });
+    const t = (m, d = 0) => timeOf(s, tk.mark(m).f) + d;
+    s.cam = [
+      { t: 0, ...zoom(typing, 0.97) },
+      { t: t("input", 300), ...typing, ease: "out" },
+      { t: t("home-line", -60), ...zoom(typing, 1.03), ease: "linear" },
+      { t: t("home-line", 380), ...phone, ease: "whip" },
+      { t: t("jiggle", -200), ...phone, ease: "linear" },
+      { t: t("jiggle", 250), ...grid, ease: "inOut" },
+      { t: t("slow"), ...zoom(grid, 1.04), ease: "linear" },
+      { t: t("tidy", 500), ...phone, ease: "inOut" },
+      { t: t("answer", -30), ...phone, ease: "linear" },
+      { t: t("answer", 420), ...log, ease: "whip" },
+      { t: t("answer", 1300), ...zoom(log, 1.03), ease: "linear" },
+      { t: t("answer", 1900), ...FULL, ease: "inOut" },
+    ];
+    s.dur = Math.min(t("answer", 2400), timeOf(s, tk.frames.length - 1));
+    s.fadeOut = 420;
+    shots.push(s);
+  }
+
   // ---- the name
-  shots.push(logo(3300, "<b>Free</b> for Windows · iPhone &amp; iPad"));
-  return shots;
+  shots.push(logo(3300, "<b>Free</b> and open source · Windows · iPhone &amp; iPad"));
+  // CLIP=1: just the footage (no title cards or name), for the site's feature clips; poster halfway in
+  if (!process.env.CLIP) return shots;
+  const clip = shots.filter((s) => s.kind === "footage");
+  clip.posterAt = clip.reduce((t, s) => t + s.dur, 0) * 0.55 / 1000;
+  return clip;
 };

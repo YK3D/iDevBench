@@ -5,15 +5,15 @@ import { LATEST_STANDALONE_EXE, RELEASES, REPO_URL, detectPlatform, formatDate, 
 
 const STEPS = [
   ["Install Apple's iPhone software", <>Get <a href="https://apps.microsoft.com/detail/9np83lwlpz9k" target="_blank" rel="noreferrer"><b>Apple Devices</b> from the Microsoft Store</a> (free, made by Apple; iTunes also works). It lets Windows talk to an iPhone. You don't need to keep it open.</>],
-  ["Download and save the app", <>Save <span className="mono">LocationSpooferStandalone.exe</span> in a folder you own, such as Desktop or Documents, so it can update itself.</>],
+  ["Download and save the app", <>Save <span className="mono">iDevBench.exe</span> in a folder you own, such as Desktop or Documents, so it can update itself.</>],
   ["Run it", <>The app isn't code-signed yet, so Windows may say “Windows protected your PC”. Choose <b>More info → Run anyway</b>.</>],
   ["Follow the setup guide", <>Plug in the iPhone, unlock it and tap <b>Trust</b>. Press <b>Reveal Developer Mode</b>, turn it on in <i>Settings › Privacy &amp; Security</i>, restart the iPhone, then press <b>Connect</b>.</>],
   ["Pick a place", <>Press <b>Teleport here</b>, or build a route and press <b>Play</b>. Press <b>Stop spoofing</b> when you're done.</>],
 ];
 
 const PLATFORM_NOTE = {
-  mac: "You're on a Mac. Location Spoofer runs on Windows 10 and 11; you can still try the demo above.",
-  linux: "You're on Linux. Location Spoofer runs on Windows 10 and 11; you can still try the demo above.",
+  mac: "You're on a Mac. iDevBench runs on Windows 10 and 11; you can still try the demo above.",
+  linux: "You're on Linux. iDevBench runs on Windows 10 and 11; you can still try the demo above.",
   mobile: "You're on a phone. The app runs on a Windows 10 or 11 PC, with the iPhone plugged into it.",
 };
 
@@ -40,7 +40,7 @@ export default function Install() {
     <section className="section install" id="install" ref={root}>
       <div className="container">
         <header className="sec-head">
-          <p className="kicker"><span className="idx">08</span> Install</p>
+          <p className="kicker"><span className="idx">10</span> Install</p>
           <h2>Ready in about five minutes.</h2>
           <p>Windows 10 or 11 (64-bit), an iPhone or iPad with Developer Mode, a USB cable, and an internet connection for maps and routing.</p>
         </header>
@@ -60,7 +60,7 @@ export default function Install() {
               </dl>
               <div className="dl-actions">
                 <a className="btn btn-primary" href={s?.url || LATEST_STANDALONE_EXE}>
-                  <Icon name="download" /> {s?.file || "LocationSpooferStandalone.exe"}
+                  <Icon name="download" /> {s?.file || "Download for Windows"}
                 </a>
                 {s?.shaUrl && <a className="text-link mono" href={s.shaUrl}>SHA-256</a>}
                 <a className="text-link mono" href={s?.page || RELEASES.standalone} target="_blank" rel="noreferrer">Release notes</a>

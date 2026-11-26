@@ -70,7 +70,7 @@ def main() -> None:
     args = ap.parse_args()
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, log_level="warning"))
     app.state.server = server
-    print(f"Location Spoofer {__version__} for the showreel recorder: http://127.0.0.1:{args.port}/", flush=True)
+    print(f"iDevBench {__version__} for the showreel recorder: http://127.0.0.1:{args.port}/", flush=True)
     asyncio.run(server.serve(), loop_factory=SteppedLoop)
 
 

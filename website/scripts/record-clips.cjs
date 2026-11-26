@@ -206,10 +206,15 @@ async function record(page, name, body, { readme = false } = {}) {
     await wait(page, 200);
     await click(page, await mapPoint(page, 51.5194, -0.0618));
     await wait(page, 250);
+    // the side menu has grown and the player covers its bottom: bring Build route to the middle
+    await page.evaluate(() => $("btn-build").scrollIntoView({ block: "center", behavior: "smooth" }));
+    await wait(page, 450);
     await click(page, await center(page, "#btn-build"));
     await wait(page, 250);
     speed(3); // the build's wait for the routing server plays at 3x
-    await page.waitForFunction(() => !state.building && state.built, null, { timeout: 120000 });
+    await page.waitForFunction(() => !state.building && state.built, null, { timeout: 120000 }).catch(async (e) => {
+      throw new Error(`${e.message}; the app says: ${await page.evaluate(() => `${state.waypoints.length} checkpoints, ${$("build-row").innerText}`)}`);
+    });
     speed(1);
     await moveTo(page, { x: VIEW.width - 160, y: 140 });
     await mapIdle(page);

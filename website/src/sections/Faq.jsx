@@ -16,8 +16,16 @@ const QA = [
     <>Any iPhone or iPad with Developer Mode. The Standalone app supports iOS 17.4 and newer, and iOS 16 and older. iOS 17.0–17.3 needs the Browser edition, which asks for administrator permission once per session.</>,
   ],
   [
+    "What does screen mirroring need?",
+    <>iOS 27 or newer, Developer Mode, the USB cable and an unlocked iPhone. The Standalone app plays the iPhone's sound too; the Browser edition shows the picture only.</>,
+  ],
+  [
+    "Is it safe to let an AI agent use my iPhone?",
+    <>The agent can only do what you could do with the mouse and keyboard, and only while iDevBench is open. Its built-in guide tells it to ask before anything it can't undo, such as buying, sending or deleting, and it enters your passcode only if you ask it to and give it the passcode. Screenshots it takes go to the AI service the agent runs on.</>,
+  ],
+  [
     "Does it send my data anywhere?",
-    <>There are no accounts, analytics or telemetry. Favourites, routes and settings stay on your computer. Maps, searches and routes are requested directly from the services listed in the <a href="/privacy">Privacy Policy</a>.</>,
+    <>There are no accounts, analytics or telemetry. Favourites, routes and settings stay on your computer. Maps, searches and routes are requested directly from the services listed in the <a href="/privacy">Privacy Policy</a>. If you connect an AI agent, what it sees goes to that agent's AI service.</>,
   ],
   [
     "How do I get my real location back?",
@@ -25,7 +33,7 @@ const QA = [
   ],
   [
     "Why does Windows warn me when I open it?",
-    <>The app is not code-signed yet, so SmartScreen shows “Windows protected your PC”. Choose <b>More info → Run anyway</b>. Each update is checked against its SHA-256 checksum before it installs, and the source code is public on GitHub.</>,
+    <>The app is not code-signed yet, so SmartScreen shows “Windows protected your PC”. Choose <b>More info → Run anyway</b>. Each update is checked against its SHA-256 checksum before it installs, and the source code is open on GitHub.</>,
   ],
 ];
 
@@ -52,7 +60,7 @@ export default function Faq() {
     <section className="section band faq" id="faq" aria-labelledby="faq-title">
       <div className="container faq-grid">
         <header className="sec-head">
-          <p className="kicker"><span className="idx">09</span> Questions</p>
+          <p className="kicker"><span className="idx">11</span> Questions</p>
           <h2 id="faq-title">Before you plug anything in.</h2>
           <p>More answers in the <a href={`${REPO_URL}#troubleshooting`} target="_blank" rel="noreferrer">troubleshooting table</a>.</p>
         </header>

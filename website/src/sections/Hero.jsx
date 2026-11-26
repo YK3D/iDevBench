@@ -71,7 +71,7 @@ export default function Hero() {
         <SplitText
           tag="h1"
           className="hero-title"
-          text="Put your iPhone anywhere on the map."
+          text="Put your iPhone anywhere. Then hand it to an AI."
           splitType="words"
           effect="rise"
           mask
@@ -82,8 +82,9 @@ export default function Hero() {
         />
         <div className="hero-sub">
           <p className="hero-lede">
-            Set the GPS location of an iPhone or iPad from your Windows PC. Jump anywhere, follow real roads at
-            realistic speeds, replay GPX files, or walk around live with the keyboard.
+            Set the GPS location of an iPhone or iPad from your Windows PC: jump anywhere, follow real roads at
+            realistic speeds, replay GPX files or walk around live. Mirror and control its screen, and let AI agents
+            like Claude use it for you.
           </p>
           <div className="hero-actions">
             <div className="cta-row">
@@ -96,8 +97,8 @@ export default function Hero() {
               </a>
             </div>
             <ul className="hero-facts mono">
-              <li>Free · no jailbreak</li>
-              <li>Source available</li>
+              <li>Free · open source</li>
+              <li>No jailbreak</li>
               <li>No account, no telemetry</li>
               <li>Windows 10 &amp; 11</li>
             </ul>
@@ -109,7 +110,7 @@ export default function Hero() {
               name="showreel"
               startDelay={900}
               preload="metadata"
-              label="A quick tour of the app: three checkpoints placed in London, reordered and built into a car route; the route played back with the live speed and heading; a search for the Eiffel Tower and a jump there; driving with the joystick; map styles and colour themes"
+              label="A quick tour of the app: three checkpoints placed in London, reordered and built into a car route; the route played back with the live speed and heading; a search for the Eiffel Tower and a jump there; driving with the joystick; map styles and colour themes; screen mirroring; then Claude Code, connected to the app, drives the iPhone to Heathrow, checks it in Find My on the mirrored screen and sorts the home screen into folders (the phone screen is a stand-in drawn for the recording)"
             />
           </AppWindow>
           <DeviceCard />

@@ -5,6 +5,7 @@ import { REPO_URL } from "../lib/releases.js";
 
 const LINKS = [
   ["features", "Features"],
+  ["phone", "Mirroring & AI"],
   ["engine", "Speed engine"],
   ["simulator", "Try it"],
   ["install", "Install"],
@@ -32,7 +33,7 @@ export default function Header({ home = true }) {
       <div className="container">
         <a className="brand" href={home ? "#top" : "/"} onClick={home ? go("top") : undefined}>
           <img src="/icon-64.png" alt="" width="28" height="28" />
-          <span>Location Spoofer</span>
+          <span>iDevBench</span>
         </a>
         <nav className="nav" aria-label="Sections">
           {LINKS.map(([id, label]) => (

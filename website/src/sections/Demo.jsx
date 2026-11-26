@@ -59,7 +59,7 @@ export default function Demo() {
     <section className="section demo" id="simulator">
       <div className="container">
         <header className="sec-head">
-          <p className="kicker"><span className="idx">07</span> Try it</p>
+          <p className="kicker"><span className="idx">09</span> Try it</p>
           <h2>Test out a demo!</h2>
           <p>
             Pick a place and teleport, build a route on real roads and play it back, or take the joystick. The speed

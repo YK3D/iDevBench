@@ -18,7 +18,7 @@ export default function DocPage({ slug }) {
   const toc = useMemo(() => (doc ? headingsOf(doc.html) : []), [doc]);
 
   useEffect(() => {
-    if (doc) document.title = `${doc.title} · Location Spoofer`;
+    if (doc) document.title = `${doc.title} · iDevBench`;
     if (!doc || !location.hash) return;
     // open at the linked heading once the text is in the page
     requestAnimationFrame(() => {
@@ -56,7 +56,7 @@ export default function DocPage({ slug }) {
           </nav>
         )}
         <article className="doc-body">
-          <p className="kicker"><a href="/">Location Spoofer</a></p>
+          <p className="kicker"><a href="/">iDevBench</a></p>
           <h1>{doc ? doc.title : " "}</h1>
           {doc && (
             <p className="doc-meta">

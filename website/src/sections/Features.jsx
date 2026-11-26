@@ -55,9 +55,11 @@ const ITEMS = [
   },
 ];
 
-export default function Features() {
+// `items` and the heading can be swapped: the iPhone section (Phone.jsx) uses the same layout.
+export default function Features({ id = "features", idx = "01–04", kicker = "What it does", title = "Four ways to change your location",
+  intro = "Every clip below is a recording of the real app, using its built-in simulated iPhone.", items = ITEMS, first = 1 }) {
   const [active, setActive] = useState(0);
-  const items = useRef([]);
+  const rows = useRef([]);
   const root = useRef(null);
 
   useEffect(() => {
@@ -65,7 +67,7 @@ export default function Features() {
       (entries) => entries.forEach((e) => { if (e.isIntersecting) setActive(Number(e.target.dataset.i)); }),
       { rootMargin: "-45% 0px -45% 0px" }
     );
-    items.current.forEach((el) => el && io.observe(el));
+    rows.current.forEach((el) => el && io.observe(el));
     return () => io.disconnect();
   }, []);
 
@@ -80,29 +82,29 @@ export default function Features() {
       });
       gsap.from(".feat-stage", {
         clipPath: "inset(6% 6% 6% 6% round 18px)", opacity: 0.4, duration: 0.7, ease: "power3.out",
-        scrollTrigger: { trigger: ".feat-grid", start: "top 78%", once: true },
+        scrollTrigger: { trigger: root.current.querySelector(".feat-grid"), start: "top 78%", once: true },
       });
     }, root));
   }, []);
 
   return (
-    <section className="section features" id="features" ref={root}>
+    <section className="section features" id={id} ref={root}>
       <div className="container">
         <header className="sec-head">
-          <p className="kicker"><span className="idx">01–04</span> What it does</p>
-          <h2>Four ways to change your location</h2>
-          <p>Every clip below is a recording of the real app, using its built-in simulated iPhone.</p>
+          <p className="kicker"><span className="idx">{idx}</span> {kicker}</p>
+          <h2>{title}</h2>
+          <p>{intro}</p>
         </header>
         <div className="feat-grid">
           <ol className="feat-list">
-            {ITEMS.map((it, i) => (
+            {items.map((it, i) => (
               <li
                 key={it.key}
                 className={`feat-item${i === active ? " is-active" : ""}`}
                 data-i={i}
-                ref={(el) => { items.current[i] = el; }}
+                ref={(el) => { rows.current[i] = el; }}
               >
-                <span className="feat-n mono">{String(i + 1).padStart(2, "0")}</span>
+                <span className="feat-n mono">{String(first + i).padStart(2, "0")}</span>
                 <h3>{it.title}</h3>
                 <p className="feat-body">{it.body}</p>
                 <ul className="feat-specs">
@@ -115,15 +117,15 @@ export default function Features() {
             ))}
           </ol>
           <div className="feat-sticky" aria-hidden="true">
-            <AppWindow className="feat-stage" title={`Location Spoofer — ${String(active + 1).padStart(2, "0")} / 04`}>
-              {ITEMS.map((it, i) => (
+            <AppWindow className="feat-stage" title={`iDevBench — ${String(first + active).padStart(2, "0")} / ${String(first + items.length - 1).padStart(2, "0")}`}>
+              {items.map((it, i) => (
                 <div key={it.key} className={`feat-layer${i === active ? " on" : ""}`}>
                   <Clip name={it.clip} label={it.label} active={i === active} />
                 </div>
               ))}
             </AppWindow>
             <div className="feat-ticks">
-              {ITEMS.map((it, i) => <span key={it.key} className={i === active ? "on" : ""} />)}
+              {items.map((it, i) => <span key={it.key} className={i === active ? "on" : ""} />)}
             </div>
           </div>
         </div>

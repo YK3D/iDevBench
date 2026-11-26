@@ -138,7 +138,7 @@ export default function Engine() {
     <section className="section band engine" id="engine" ref={root}>
       <div className="container">
         <header className="sec-head">
-          <p className="kicker"><span className="idx">05</span> Speed engine</p>
+          <p className="kicker"><span className="idx">07</span> Speed engine</p>
           <h2>It slows down for bends, the way a driver would.</h2>
           <p>
             Each bend is taken at the speed its radius allows for the vehicle on that leg, v = √(a·R). A junction that

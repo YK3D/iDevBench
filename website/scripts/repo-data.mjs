@@ -14,7 +14,7 @@ import { fetchReleaseList, pickReleases } from "../src/lib/release-pick.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "../..");
 const OUT = path.resolve(here, "../src/generated");
-const BLOB = "https://github.com/YK3D/iPhone-location-spoofer/blob/main";
+const BLOB = "https://github.com/YK3D/iDevBench/blob/main";
 
 export const DOCS = [
   { slug: "terms", file: "TERMS.md", title: "Terms of Use" },
@@ -77,7 +77,7 @@ function themeCount() {
 
 async function releases() {
   try {
-    return pickReleases(await fetchReleaseList(process.env.GITHUB_TOKEN, "location-spoofer-website-build"));
+    return pickReleases(await fetchReleaseList(process.env.GITHUB_TOKEN, "idevbench-website-build"));
   } catch (e) {
     console.warn(`repo-data: no release snapshot (${e.message}); the page fetches it live instead`);
     return null;

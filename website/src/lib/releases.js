@@ -2,15 +2,17 @@ import { createContext, createElement, useContext, useEffect, useState } from "r
 import repo from "../generated/repo.json";
 import { RELEASES_API, pickReleases } from "./release-pick.js";
 
-export const REPO = "YK3D/iPhone-location-spoofer";
+export const REPO = "YK3D/iDevBench";
 export const REPO_URL = `https://github.com/${REPO}`;
-export const SITE_URL = "https://iphone-spoofer.vercel.app";
+export const SITE_URL = "https://idevbench.vercel.app";
 export const RELEASES = {
   standalone: `${REPO_URL}/releases?q=standalone&expanded=true`,
   browser: `${REPO_URL}/releases?q=browser&expanded=true`,
 };
 // The standalone app is the release GitHub marks "latest", so this always downloads its newest version,
 // even when the version data below couldn't be loaded.
+// shortcut: the old file name, which every release still ships (for old copies' updates) while the
+// latest stable one has no iDevBench.exe yet; switch once a stable release includes iDevBench.exe.
 export const LATEST_STANDALONE_EXE = `${REPO_URL}/releases/latest/download/LocationSpooferStandalone.exe`;
 
 // Facts read from the repository when the site was built (scripts/repo-data.mjs).
