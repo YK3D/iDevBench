@@ -10,6 +10,7 @@ const ROWS = [
   ["crosshair", "Stop spoofing", "One click gives the iPhone its real GPS back and shows your computer's real location on the map."],
   ["pin", "Google Maps, if you want it", "Add your own API key for Google routes and map tiles. Without one, routing uses free OpenStreetMap services."],
   ["route", "Road-aware driving", "Experimental: follows each road's typical speed and aims for the same trip time as Google Maps or OpenStreetMap."],
+  ["keyboard", "A local API", "Your own scripts can watch the screen, tap, type and set the location, the same way AI agents do."],
   ["shield", "Private by design", "No accounts, no analytics, no telemetry. Favourites, routes and settings stay on your computer."],
 ];
 
@@ -31,7 +32,7 @@ export default function Details() {
     <section className="section details" ref={root} aria-labelledby="details-title">
       <div className="container">
         <header className="sec-head">
-          <p className="kicker"><span className="idx">06</span> And the rest</p>
+          <p className="kicker"><span className="idx">08</span> And the rest</p>
           <h2 id="details-title">The small things you'd otherwise miss.</h2>
         </header>
         <dl className="spec-grid">

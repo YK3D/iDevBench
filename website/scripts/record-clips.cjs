@@ -148,9 +148,12 @@ async function record(page, name, body, { readme = false } = {}) {
   await wait(page, 200);
   // ffconcat with each frame shown until the next one arrives (the screencast only sends changes)
   const lines = ["ffconcat version 1.0"];
+  let total = 0; // the clip's length, which speed() makes shorter than the time it took
   frames.forEach((fr, i) => {
     const next = i + 1 < frames.length ? frames[i + 1].t : Math.max(ended, fr.t + 0.04);
-    lines.push(`file '${fr.file}'`, `duration ${Math.max(0.001, (next - fr.t) / speedAt(fr.wall)).toFixed(4)}`);
+    const d = Math.max(0.001, (next - fr.t) / speedAt(fr.wall));
+    total += d;
+    lines.push(`file '${fr.file}'`, `duration ${d.toFixed(4)}`);
   });
   lines.push(`file '${frames[frames.length - 1].file}'`);
   const list = path.join(dir, "list.txt");
@@ -159,7 +162,7 @@ async function record(page, name, body, { readme = false } = {}) {
   const vf = "scale=1280:-2:flags=lanczos,fps=30,format=yuv420p";
   ff("-vf", vf, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "36", "-row-mt", "1", "-an", path.join(OUT, `${name}.webm`));
   ff("-vf", vf, "-c:v", "libx264", "-preset", "slow", "-crf", "27", "-movflags", "+faststart", "-an", path.join(OUT, `${name}.mp4`));
-  ff("-vf", "scale=1280:-2", "-frames:v", "1", "-ss", String(Math.max(0, ended - started - 0.1)), "-c:v", "libwebp", "-quality", "80", path.join(OUT, `${name}-poster.webp`));
+  ff("-vf", "scale=1280:-2", "-frames:v", "1", "-ss", String(Math.max(0, total - 0.1)), "-c:v", "libwebp", "-quality", "80", path.join(OUT, `${name}-poster.webp`));
   if (readme) {
     // the README's animation: smaller and at 15 fps so GitHub shows it quickly
     ff("-vf", "fps=15,scale=900:-2:flags=lanczos", "-c:v", "libwebp_anim", "-loop", "0", "-quality", "70", "-compression_level", "6", README_ANIM);
@@ -206,10 +209,15 @@ async function record(page, name, body, { readme = false } = {}) {
     await wait(page, 200);
     await click(page, await mapPoint(page, 51.5194, -0.0618));
     await wait(page, 250);
+    // the side menu has grown and the player covers its bottom: bring Build route to the middle
+    await page.evaluate(() => $("btn-build").scrollIntoView({ block: "center", behavior: "smooth" }));
+    await wait(page, 450);
     await click(page, await center(page, "#btn-build"));
     await wait(page, 250);
     speed(3); // the build's wait for the routing server plays at 3x
-    await page.waitForFunction(() => !state.building && state.built, null, { timeout: 120000 });
+    await page.waitForFunction(() => !state.building && state.built, null, { timeout: 120000 }).catch(async (e) => {
+      throw new Error(`${e.message}; the app says: ${await page.evaluate(() => `${state.waypoints.length} checkpoints, ${$("build-row").innerText}`)}`);
+    });
     speed(1);
     await moveTo(page, { x: VIEW.width - 160, y: 140 });
     await mapIdle(page);

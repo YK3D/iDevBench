@@ -11,20 +11,20 @@ DIGEST = hashlib.sha256(NEW_EXE).hexdigest()
 
 
 def fake_github(tag="browser-v1.1.50", digest=DIGEST, exe_host="release-assets.githubusercontent.com", body=NEW_EXE,
-                extra=()):
+                extra=(), name="iDevBenchBrowser.exe"):
     def rel(t, pre=False):
         return {"tag_name": t, "body": "notes", "prerelease": pre, "draft": False, "assets": [
-            {"name": "LocationSpooferBrowser.exe", "browser_download_url": "https://github.com/o/r/releases/download/x/LocationSpooferBrowser.exe"},
-            {"name": "LocationSpooferBrowser.exe.sha256", "browser_download_url": "https://github.com/o/r/releases/download/x/LocationSpooferBrowser.exe.sha256"},
+            {"name": name, "browser_download_url": f"https://github.com/o/r/releases/download/x/{name}"},
+            {"name": f"{name}.sha256", "browser_download_url": f"https://github.com/o/r/releases/download/x/{name}.sha256"},
         ]}
 
     def handler(req: httpx.Request) -> httpx.Response:
         url = str(req.url)
         if "/releases?" in url or url.endswith("/releases"):
             return httpx.Response(200, json=[rel("standalone-v9.9.9"), rel(tag), *[rel(t, pre) for t, pre in extra]])
-        if url.endswith("LocationSpooferBrowser.exe.sha256"):
-            return httpx.Response(200, text=f"{digest}  LocationSpooferBrowser.exe")
-        if url.endswith("download/x/LocationSpooferBrowser.exe"):
+        if url.endswith(f"{name}.sha256"):
+            return httpx.Response(200, text=f"{digest}  {name}")
+        if url.endswith(f"download/x/{name}"):
             return httpx.Response(302, headers={"Location": f"https://{exe_host}/blob/exe"})
         if url.endswith("/blob/exe"):
             return httpx.Response(200, content=body)
@@ -45,6 +45,11 @@ def make(tmp_path, current="1.1.10", transport=None):
 ])
 def test_is_newer(a, b, newer):
     assert up.is_newer(a, b) is newer
+
+
+def test_releases_from_before_the_rename_still_update(tmp_path):
+    u = make(tmp_path, transport=fake_github(name="LocationSpooferBrowser.exe"))
+    assert asyncio.run(u.check())["state"] == "ready"
 
 
 def test_download_verify_and_swap(tmp_path, monkeypatch):

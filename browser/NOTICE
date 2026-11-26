@@ -1,7 +1,7 @@
-Location Spoofer, browser edition
+iDevBench (formerly Location Spoofer), browser edition
 Copyright (c) 2026 YK3D
 
-The browser edition (this browser/ folder and the LocationSpooferBrowser.exe
+The browser edition (this browser/ folder and the iDevBenchBrowser.exe
 builds made from it) is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by the Free
 Software Foundation, either version 3 of the License, or (at your option) any
@@ -28,19 +28,19 @@ material, modified or not, must follow them.
    legal notices or credits to its users (for example an About screen, a
    README or a project description):
 
-       Based on Location Spoofer by YK3D
-       https://github.com/YK3D/iPhone-location-spoofer
+       Based on iDevBench by YK3D
+       https://github.com/YK3D/iDevBench
 
 2. No misrepresentation (section 7(c)). Modified versions must be clearly
-   marked as changed and must not be presented as the original Location
-   Spoofer or as made or endorsed by YK3D.
+   marked as changed and must not be presented as the original iDevBench
+   (formerly Location Spoofer) or as made or endorsed by YK3D.
 
 3. Names and logos (section 7(e)). This license grants no right to use the
-   names "Location Spoofer" or "YK3D", or the app's icon, as a name, logo or
+   names "iDevBench", "Location Spoofer" or "YK3D", or the app's icon, as a name, logo or
    trademark for another product. The icon and artwork (assets/) are not
-   covered by the GPL: see the LICENSE file at the root of the repository.
+   covered by the GPL: they are under the MIT License (the LICENSE file at the
+   root of the repository).
 
 The shared interface (ui/) and the icon that the browser edition serves and
 includes are not part of this GPL-licensed program: they are separate works
-under the Location Spoofer License (the LICENSE file at the root of the
-repository).
+under the MIT License (the LICENSE file at the root of the repository).

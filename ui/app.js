@@ -1,5 +1,5 @@
 /* iDevBench — UI shared by the standalone and browser apps. Talks to the local server at /api.
-   Copyright (c) 2026 YK3D. All rights reserved. Licensed under the Location Spoofer License (LICENSE). */
+   Copyright (c) 2026 YK3D. MIT License (LICENSE). */
 "use strict";
 
 // ------------------------------------------------------------------ helpers
@@ -2961,7 +2961,7 @@ async function refreshGoogleStatus() {
 const SITE = "https://idevbench.vercel.app"; // the website hosts the Terms, Privacy Policy and licences
 const TUTORIAL = [
   { title: "Welcome", body: [
-      "This app sets your iPhone's location from this computer over a USB cable: jump to any place, follow routes at realistic speeds, or replay GPX files.",
+      "This app works with your iPhone from this computer over a USB cable: set its location (jump to any place, follow routes at realistic speeds, replay GPX files), and with iOS 27 or newer, mirror and control its screen.",
       "Use it only where it is allowed, for example testing your own apps. Games and dating, school or work apps often ban fake locations and can suspend accounts.",
       ["By continuing you agree to the ", ["Terms of Use", `${SITE}/terms`], ". The ", ["Privacy Policy", `${SITE}/privacy`], " explains which online map services the app contacts. Nothing is collected by the app's authors."],
       "Want to look around first? Pick “Simulator (no iPhone)” as the connection and skip ahead." ], art: "welcome" },
@@ -2988,6 +2988,12 @@ const TUTORIAL = [
       "Route: click checkpoints, choose roads, footpaths or sea lanes, set speeds, Build route, then Play. The line's colour shows the speed.",
       "Every section can be folded away, the side menu can be resized by dragging its edge, and Settings has themes and keyboard shortcuts (press H to see them).",
       "When you're done, press “Stop spoofing — back to real location”." ], art: "move" },
+  { title: "6 · Mirror the screen", body: [
+      "Switch to Mirroring at the top of the side menu and press Start mirroring (iOS 27 or newer, with Developer Mode on and the iPhone unlocked).",
+      "Click to tap, drag to swipe, scroll with the mouse wheel and Ctrl + wheel to zoom. Click the screen and type to use your keyboard; Esc gives it back.",
+      "The buttons next to the phone press Home, Lock, Volume and Siri, open the app switcher, Control Centre and notifications, and take screenshots and recordings.",
+      "Connect an AI agent lets Claude, Codex, Cursor and others use the phone for you." ], art: "mirror",
+    action: { label: "Open Mirroring", run: async () => setMode("screen") } },
 ];
 // Small animated illustrations for the tutorial steps (drawn with the theme's colours, see style.css).
 const PIN = (x, y) => `<path class="ta-pin" d="M${x} ${y} C${x - 9} ${y - 9} ${x - 14} ${y - 15} ${x - 14} ${y - 22} A14 14 0 0 1 ${x + 14} ${y - 22} C${x + 14} ${y - 15} ${x + 9} ${y - 9} ${x} ${y}Z"/><circle class="ta-pin-dot" cx="${x}" cy="${y - 22}" r="5"/>`;
@@ -3015,6 +3021,10 @@ const TUT_ART = {
     <rect class="ta-btn" x="48" y="70" width="80" height="20" rx="6"/>
     <circle class="ta-sig s1" cx="172" cy="66" r="4"/><circle class="ta-sig s2" cx="188" cy="66" r="4"/><circle class="ta-sig s3" cx="204" cy="66" r="4"/>
     <rect class="ta-phone" x="222" y="16" width="62" height="104" rx="12"/><g transform="translate(0 4)">${PIN(253, 76)}</g>`,
+  mirror: `<rect class="ta-win" x="40" y="10" width="240" height="112" rx="10"/><path class="ta-line" d="M40 28H280"/>
+    <rect class="ta-phone" x="128" y="36" width="44" height="80" rx="9"/><rect class="ta-row" x="134" y="46" width="32" height="56" rx="4"/>
+    <path class="ta-line" d="M190 50h40M190 64h34M190 78h40M190 92h28"/>
+    <circle class="ta-dev" r="4.5"><animateMotion dur="3s" repeatCount="indefinite" path="M150 92 C150 80 150 66 150 58"/></circle>`,
   move: `<rect class="ta-card" x="20" y="10" width="280" height="112" rx="12"/>${ROADS}
     <path id="tut-route" class="ta-route" d="M40 104C80 104 92 72 130 68S192 94 222 62S262 26 284 32"/>
     <circle class="ta-cp" cx="40" cy="104" r="6"/><circle class="ta-cp" cx="130" cy="68" r="6"/><circle class="ta-cp" cx="284" cy="32" r="6"/>
@@ -3340,8 +3350,8 @@ function renderMirrorDevice() {
 $("device-select").addEventListener("change", renderMirrorDevice);
 // The placeholder's home screen: a page of app icons and a dock.
 (() => {
-  const colours = ["#ff9f0a", "#30d158", "#0a84ff", "#ff375f", "#bf5af2", "#64d2ff", "#ffd60a", "#ff453a", "#5e5ce6", "#66d4cf", "#ac8e68", "#8e8e93"];
-  const icon = (i) => { const e = document.createElement("i"); e.style.setProperty("--c", colours[(i * 7) % colours.length]); return e; };
+  const colours = ["#4a4b51", "#5a5b61", "#3f4045", "#66676d", "#505157", "#45464b"]; // greys only: a placeholder, not a real screen
+  const icon = (i) => { const e = document.createElement("i"); e.style.setProperty("--c", colours[(i * 5) % colours.length]); return e; };
   $("sk-grid").append(...Array.from({ length: 24 }, (_, i) => icon(i)));
   $("sk-dock").append(...Array.from({ length: 4 }, (_, i) => icon(i + 3)));
 })();

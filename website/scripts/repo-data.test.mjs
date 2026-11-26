@@ -11,7 +11,7 @@ test("links between the documents become site pages", () => {
 });
 
 test("other repository paths go to GitHub, absolute links stay", () => {
-  assert.equal(rewriteHref("browser/LICENSE"), "https://github.com/YK3D/iPhone-location-spoofer/blob/main/browser/LICENSE");
+  assert.equal(rewriteHref("browser/LICENSE"), "https://github.com/YK3D/iDevBench/blob/main/browser/LICENSE");
   assert.equal(rewriteHref("https://openfreemap.org"), "https://openfreemap.org");
   assert.equal(rewriteHref("#troubleshooting"), "#troubleshooting");
 });
@@ -37,4 +37,12 @@ test("the latest stable release of each edition is picked, pre-releases skipped"
   assert.equal(r.standalone.shaUrl, "https://x/LocationSpooferStandalone.exe.sha256");
   assert.equal(r.browser.version, "1.3.19");
   assert.equal(pickReleases("nope"), null);
+});
+
+test("the new file name is preferred when a release has both", () => {
+  const asset = (name, size) => ({ name, size, browser_download_url: `https://x/${name}` });
+  const r = pickReleases([{ tag_name: "standalone-v0.2.24", prerelease: false, assets: [
+    asset("LocationSpooferStandalone.exe", 2), asset("LocationSpooferStandalone.exe.sha256", 95), asset("iDevBench.exe", 3), asset("iDevBench.exe.sha256", 95)] }]);
+  assert.equal(r.standalone.file, "iDevBench.exe");
+  assert.equal(r.standalone.shaUrl, "https://x/iDevBench.exe.sha256");
 });

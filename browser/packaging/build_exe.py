@@ -2,7 +2,7 @@
 
 Usage (CI runs this on windows-latest):
     python packaging/build_exe.py --version 1.1.42
-Output: dist/LocationSpooferBrowser.exe (dist/LocationSpooferBrowser on macOS/Linux)
+Output: dist/iDevBenchBrowser.exe (dist/iDevBenchBrowser on macOS/Linux)
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ def main() -> int:
     sep = os.pathsep
     pyi_args = [
         str(ROOT / "packaging" / "launcher.py"),
-        "--name", "LocationSpooferBrowser",
+        "--name", "iDevBenchBrowser",
         "--noconfirm",
         "--clean",
         "--console",  # the console window is the app's "on" switch and shows its log

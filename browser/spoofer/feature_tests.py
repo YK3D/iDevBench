@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 
 RELEASE_TAG = "feature-tests"
 MANIFEST = "ft-index.bin"
-EXE_NAME = "LocationSpooferStandalone.exe"
+EXE_NAME = "iDevBench.exe"
 MAGIC = b"LSFT1"
 HEADER = 5 + 4 + 16 + 12
 MAX_ITERATIONS = 5_000_000

@@ -1,7 +1,7 @@
 # Website
 
-The project's site, [iphone-spoofer.vercel.app](https://iphone-spoofer.vercel.app): what the app does,
-the downloads, a smaller version of the app that runs in the browser (teleport, road routes with the
+The project's site, [idevbench.vercel.app](https://idevbench.vercel.app): what the app does
+(location, screen mirroring, AI agents), the downloads, a smaller version of the app that runs in the browser (teleport, road routes with the
 app's speed engine, playback and a joystick, with a simulated iPhone), and the Terms, Privacy Policy,
 Licence, Third-party notices and Changelog as pages. Vite + React, Lenis smooth scrolling, GSAP
 ScrollTrigger animations, two React Bits components (`src/components/reactbits`). Dark only.
@@ -70,6 +70,18 @@ per frame, so nothing stutters however slow the capture is. The shots are listed
 `scripts/showreel/shots.cjs`; `SHEET=1 node website/scripts/showreel/edit.cjs` writes contact sheets
 instead of the videos, for checking an edit quickly. Both need Playwright and ffmpeg, and the recording
 needs an internet connection (map tiles, routes and place search).
+
+The last three takes show screen mirroring and an AI agent. The app's Simulator accepts mirroring and
+every touch but has no picture, so `scripts/showreel/phone-demo.js` draws a stand-in iPhone screen where
+the app shows the mirrored picture, a terminal styled like Claude Code, and the agent's pointer. The
+agent's tool calls are real calls to the app's MCP server (`/mcp`), apart from `screenshot` (the Simulator
+has nothing to capture); the site says the phone screen is a stand-in wherever these clips appear.
+The same footage makes the site's mirroring and agent clips, without the title cards:
+
+```bash
+CLIP=1 ONLY=mirror,agent-folders NAME=mirroring OUT_W=1280 node website/scripts/showreel/edit.cjs
+CLIP=1 ONLY=agent-route NAME=agent OUT_W=1280 node website/scripts/showreel/edit.cjs
+```
 
 ## Hosting
 

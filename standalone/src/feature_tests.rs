@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 
 pub const RELEASE_TAG: &str = "feature-tests";
 pub const MANIFEST: &str = "ft-index.bin";
-pub const EXE_NAME: &str = "LocationSpooferStandalone.exe";
+pub const EXE_NAME: &str = "iDevBench.exe";
 const MAGIC: &[u8; 5] = b"LSFT1";
 const HEADER: usize = 5 + 4 + 16 + 12;
 /// Files name their own PBKDF2 iteration count (CI uses 600,000); more than this is refused.
@@ -339,14 +339,14 @@ mod tests {
     #[tokio::test]
     async fn locked_until_unlocked() {
         let dir = std::env::temp_dir().join(format!("spoofer-ft-{}", rand::random::<u32>()));
-        let ft = FeatureTests::new(&dir, "YK3D/iPhone-location-spoofer", Box::new(|_, _, _| Ok(())));
+        let ft = FeatureTests::new(&dir, "YK3D/iDevBench", Box::new(|_, _, _| Ok(())));
         assert_eq!(ft.list().await.unwrap()["locked"], true);
         assert!(ft.open_build(1).await.unwrap_err().contains("Unlock"));
         assert!(ft.unlock("", false).await.is_err());
         // a remembered password is picked up at start, and forgotten by lock()
         std::fs::create_dir_all(dir.join("feature-tests")).unwrap();
         std::fs::write(dir.join("feature-tests/access.key"), "secret\n").unwrap();
-        let ft = FeatureTests::new(&dir, "YK3D/iPhone-location-spoofer", Box::new(|_, _, _| Ok(())));
+        let ft = FeatureTests::new(&dir, "YK3D/iDevBench", Box::new(|_, _, _| Ok(())));
         assert_eq!(ft.password().as_deref(), Some("secret"));
         ft.lock();
         assert!(ft.password().is_none() && !dir.join("feature-tests/access.key").exists());
@@ -363,7 +363,7 @@ mod tests {
             let (files, hits) = (files.clone(), hits.clone());
             async move {
                 let name = uri.path().rsplit('/').next().unwrap_or("").to_string();
-                assert!(uri.path().starts_with("/YK3D/iPhone-location-spoofer/releases/download/feature-tests/"));
+                assert!(uri.path().starts_with("/YK3D/iDevBench/releases/download/feature-tests/"));
                 hits.lock().unwrap().push(name.clone());
                 match files.iter().find(|(n, _)| *n == name) {
                     Some((_, d)) => d.clone().into_response(),
@@ -386,7 +386,7 @@ mod tests {
         type Launches = Arc<Mutex<Vec<(PathBuf, Vec<String>)>>>;
         let launched: Launches = Arc::new(Mutex::new(Vec::new()));
         let l2 = launched.clone();
-        let mut ft = FeatureTests::new(&dir, "YK3D/iPhone-location-spoofer", Box::new(move |exe, args, _| {
+        let mut ft = FeatureTests::new(&dir, "YK3D/iDevBench", Box::new(move |exe, args, _| {
             l2.lock().unwrap().push((exe.to_path_buf(), args.to_vec()));
             Ok(())
         }));

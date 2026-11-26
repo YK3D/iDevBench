@@ -7,6 +7,7 @@ import { onScroll, scrollTargetFor, scrollToId } from "../lib/motion.js";
 const STOPS = [
   ["top", "Start"],
   ["features", "Features"],
+  ["phone", "Mirroring & AI"],
   ["engine", "Speed engine"],
   ["simulator", "Try it"],
   ["install", "Install"],

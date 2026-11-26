@@ -54,6 +54,16 @@ async function startServer() {
 }
 const serverClock = (action, dt = 0) =>
   fetch(`${BASE}/__showreel/clock`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, dt }) });
+// one call to the app's MCP server, as an AI agent makes it; resolves to the tool's JSON answer
+async function mcp(name, args = {}) {
+  const r = await (await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: name === "tools/list" ? name : "tools/call", params: name === "tools/list" ? {} : { name, arguments: args } }) })).json();
+  if (r.error) throw new Error(`${name}: ${r.error.message}`);
+  if (name === "tools/list") return r.result;
+  const text = r.result.content.map((c) => c.text || "").join("");
+  if (r.result.isError) throw new Error(`${name}: ${text}`);
+  try { return JSON.parse(text); } catch (_) { return text; }
+}
 
 // ---------------------------------------------------------------- the page
 // Runs before the app: keeps CSS animations and transitions on the page's (fake) clock. Each one is
@@ -92,7 +102,7 @@ const ANIMATION_CLOCK = `(() => {
 
 class Recorder {
   constructor(page, cdp) {
-    Object.assign(this, { page, cdp, n: 0, take: null, pointer: { x: VIEW.width - 140, y: 140, down: false } });
+    Object.assign(this, { page, cdp, n: 0, take: null, pointer: { x: VIEW.width - 140, y: 140, down: false }, phone: { x: 300, y: 640 } });
   }
 
   // one video frame: both clocks move on 1/30 s, animations follow, the map gets its tiles, capture
@@ -101,7 +111,7 @@ class Recorder {
     this.n++;
     await serverClock("step", dt / 1000);
     await this.page.clock.runFor(dt);
-    await this.page.evaluate(() => __showreel.step());
+    await this.page.evaluate(() => { __showreel.step(); if (window.__demo && __demo.el.root) __demo.track(); });
     for (let i = 0; i < 80 && !(await this.page.evaluate(() => __showreel.mapReady())); i++) await sleep(50);
     if (!capture || !this.take) return;
     const { data } = await this.cdp.send("Page.captureScreenshot", {
@@ -196,6 +206,51 @@ class Recorder {
       for (let i = 0; i < framesPerKey; i++) await this.frame();
     }
   }
+  // keep filming until `promise` settles (a request to the app, whose clock only moves with the frames)
+  async settle(promise, { capture = true } = {}) {
+    let done = false, value, error;
+    promise.then((v) => { done = true; value = v; }, (e) => { done = true; error = e; });
+    for (let i = 0; !done; i++) {
+      if (i > 30 * 60) throw new Error("an app request took over a minute");
+      await this.frame({ capture });
+    }
+    if (error) throw error;
+    return value;
+  }
+
+  // ---- the AI agent: its terminal (typing at a person's uneven pace) and its pointer on the iPhone
+  async typePrompt(text) {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (const ch of text) {
+      await this.page.evaluate((c) => __demo.term.key(c), ch);
+      const n = 1 + (rnd() < 0.3 ? 1 : 0) + (ch === " " && rnd() < 0.35 ? 1 : 0);
+      for (let i = 0; i < n; i++) await this.frame();
+    }
+  }
+  // a tool call as the terminal shows it, then the real call to the app, then its result line
+  async tool(name, args, shown, result) {
+    await this.page.evaluate(([n, a]) => __demo.term.tool(n, a), [name, shown]);
+    const value = args === null ? null : await this.settle(mcp(name, args));
+    if (result !== undefined) await this.page.evaluate((r) => __demo.term.result(r), typeof result === "function" ? result(value) : result);
+    return value;
+  }
+  async phoneMove(to, { min = 260, max = 560 } = {}) {
+    const from = this.phone;
+    const dist = Math.hypot(to.x - from.x, to.y - from.y);
+    const steps = Math.max(2, Math.round((Math.max(min, Math.min(max, 200 + dist * 0.9)) * FPS) / 1000));
+    for (let i = 1; i <= steps; i++) {
+      const f = i / steps;
+      const e = 0.5 * (f < 0.5 ? 4 * f ** 3 : 1 - (-2 * f + 2) ** 3 / 2) + 0.5 * (0.5 - 0.5 * Math.cos(Math.PI * f));
+      this.phone = { x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e };
+      await this.page.evaluate(([p, drag]) => { __demo.cursor(p.x, p.y); if (drag) __demo.dragTo(drag, p.x, p.y); }, [this.phone, this.dragging || null]);
+      await this.frame();
+    }
+  }
+  async phonePress(down) {
+    await this.page.evaluate((d) => __demo.press(d), down);
+    await this.frame();
+  }
 }
 
 async function rect(page, selector) {
@@ -255,6 +310,14 @@ const DEVICE_PROBE = () => {
       await visit(([t, p]) => { settings().map_theme = t; settings().map_provider = p; applyAppearance(); }, [theme, provider]);
       await page.waitForTimeout(1200);
     }
+    // the mirroring takes' stand-in iPhone screen and agent terminal (phone-demo.js), with the Find My
+    // map loaded now, while the clock still runs
+    const mono = fs.readFileSync(path.join(__dirname, "..", "..", "node_modules", "@fontsource-variable", "jetbrains-mono", "files", "jetbrains-mono-latin-wght-normal.woff2"));
+    await page.addStyleTag({ content: `@font-face { font-family: "JBMono"; font-weight: 100 800; src: url(data:font/woff2;base64,${mono.toString("base64")}) format("woff2"); }` });
+    await page.addScriptTag({ path: path.join(__dirname, "phone-demo.js") });
+    await page.evaluate((n) => __demo.term.install(n), (await mcp("tools/list")).tools.length);
+    await page.evaluate((c) => __demo.prepareMap(c), LONDON.a);
+    await page.waitForFunction(() => __showreel.mapReady(), null, { timeout: 30000, polling: 200 }).catch(() => {});
     await page.waitForTimeout(3000); // the "Connected" toast has gone
 
     // From here on, time only moves a frame at a time
@@ -324,7 +387,7 @@ const DEVICE_PROBE = () => {
     await page.evaluate(() => {
       $("multiplier").value = "10"; $("multiplier").dispatchEvent(new Event("change"));
       const w = state.waypoints[0];
-      map.setView([w.lat, w.lon], 16, { animate: false });
+      if (w) map.setView([w.lat, w.lon], 16, { animate: false });
     });
     await rec.skip(1500);
     await rec.record("playback", async () => {
@@ -428,6 +491,180 @@ const DEVICE_PROBE = () => {
       await rec.hold(400);
       await rec.moveTo({ x: VIEW.width - 150, y: 150 });
       await rec.hold(600);
+    });
+
+    // 6. Mirroring: back in London, the Mirroring section, Start mirroring, and the iPhone's screen.
+    //    The Simulator has no picture, so phone-demo.js draws a stand-in screen where the app shows it.
+    await rec.settle(mcp("set_location", { lat: LONDON.a[0], lon: LONDON.a[1] }), { capture: false });
+    await page.evaluate((c) => { map.setView(c, 16, { animate: false }); $("sidebar").scrollTop = 0; }, LONDON.a);
+    await rec.skip(900);
+    await rec.record("mirror", async () => {
+      await rec.hold(150);
+      await rec.mark("modes", "#modes");
+      await rec.click(await center(page, '#modes button[data-mode="screen"]'), { min: 380 });
+      await page.evaluate(() => { $("sidebar").scrollTop = 0; }); // the route take left it scrolled down
+      await rec.hold(380);
+      await rec.mark("start", "#btn-mirror");
+      await rec.click(await center(page, "#btn-mirror"), { min: 300 });
+      await rec.until(() => mirror.status.state === "on");
+      await page.evaluate(() => { __demo.install(); __demo.screenOn(); });
+      await rec.mark("phone", "#mirror-canvas");
+      await rec.hold(500);
+      await rec.moveTo({ x: VIEW.width - 60, y: VIEW.height - 40 }, { min: 500, max: 700 });
+      await rec.hold(700);
+    });
+
+    // 7. An AI agent (Claude Code, connected to the app's MCP server) drives the iPhone from the
+    //    terminal: a route to the airport from where the iPhone is, played, and checked in Find My on
+    //    the mirrored screen. Every tool call is a real call to the app; "screenshot" isn't (the
+    //    Simulator has no picture to send), so its line describes the stand-in screen.
+    const AT = (p) => `x: ${(p.x / 390).toFixed(2)}, y: ${(p.y / 844).toFixed(2)}`;
+    const km = (m) => `${(m / 1000).toFixed(1)} km`;
+    const mins = (s) => `${Math.round(s / 60)} min`;
+    await rec.record("agent-route", async () => {
+      await page.evaluate(() => __demo.term.open());
+      await rec.hold(450);
+      await rec.mark("term", "#demo-term");
+      await rec.mark("input", ".dt-input");
+      await rec.typePrompt("create a route from my current location to the airport, play it and confirm from screen mirroring");
+      await rec.mark("typed", ".dt-input");
+      await rec.hold(260);
+      await page.evaluate(() => { __demo.term.submit(); __demo.term.think("Thinking"); });
+      await rec.mark("sent", ".dt-log");
+      await rec.hold(700);
+      await page.evaluate(() => __demo.term.say("I'll check where the iPhone is, find the airport, then start the drive."));
+      await rec.hold(300);
+      const st = await rec.tool("get_status", {}, "", (s) => {
+        const p = s.player && s.player.position;
+        return `${s.device ? s.device.name : "iPhone"} at ${p ? `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}` : "its real location"}`;
+      });
+      await rec.hold(260);
+      const place = await rec.tool("search_place", { q: "Heathrow Airport" }, 'q: "Heathrow Airport"',
+        (r) => `${r.results[0].name.split(",")[0]} · ${r.results[0].lat.toFixed(5)}, ${r.results[0].lon.toFixed(5)}`);
+      await rec.hold(260);
+      const here = st.player.position, to = place.results[0];
+      await page.evaluate(() => __demo.term.think("Routing"));
+      const route = await rec.tool("drive_route",
+        { waypoints: [{ lat: here.lat, lon: here.lon, name: "Current location" }, { lat: to.lat, lon: to.lon, name: "Heathrow Airport" }],
+          legs: [{ mode: "car", cruise_kmh: 50 }], name: "To Heathrow" },
+        "car, current location → Heathrow, 50 km/h",
+        (r) => `${km(r.summary.distance_m)} · about ${mins(r.summary.duration_s)} · playing`);
+      await rec.mark("routed", ".dt-log");
+      await rec.hold(300);
+      await page.evaluate(() => __demo.term.think("Checking the screen"));
+      await rec.tool("mirroring_status", {}, "", (m) => `${m.state} · ${m.width}×${m.height}`);
+      await rec.hold(220);
+      await rec.tool("screenshot", null, "", "Home Screen");
+      await rec.hold(260);
+      const findMy = await page.evaluate(() => __demo.at("findmy"));
+      await rec.until(() => __demo.mapLoaded(), null, { max: 30000 }); // the Find My map, ready before it opens
+      await rec.mark("tap-line", ".dt-log");
+      await page.evaluate(() => { __demo.cursor(300, 640); __demo.cursorShow(true); });
+      rec.phone = { x: 300, y: 640 };
+      await rec.tool("tap", { x: +(findMy.x / 390).toFixed(2), y: +(findMy.y / 844).toFixed(2) }, AT(findMy), "ok");
+      await rec.mark("phone", "#mirror-canvas");
+      await rec.phoneMove(findMy);
+      await rec.frame();
+      await rec.phonePress(true);
+      await rec.frame();
+      await rec.phonePress(false);
+      await rec.mark("tapped");
+      await page.evaluate(() => __demo.openApp("findmy"));
+      await rec.hold(200);
+      await rec.phoneMove({ x: 330, y: 470 }, { min: 500 });
+      await page.evaluate(() => __demo.cursorShow(false));
+      await rec.tool("wait", { ms: 1500 }, "ms: 1500", "waited 1500 ms");
+      await rec.tool("screenshot", null, "", "Find My: the iPhone is on the move near Trafalgar Square");
+      await rec.mark("found");
+      await rec.hold(1700);
+      await page.evaluate(() => __demo.term.think(null));
+      await page.evaluate((t) => __demo.term.say(t),
+        `Done. The ${km(route.summary.distance_m)} drive to Heathrow is playing (about ${mins(route.summary.duration_s)}), and Find My on the iPhone shows it moving through Westminster.`);
+      await rec.mark("answer", ".dt-log");
+      await rec.hold(1500);
+    });
+
+    // 8. The same agent tidies the home screen into folders: back to the Home Screen, touch and hold,
+    //    then each app dragged onto another (a new folder) or onto its folder.
+    const FOLDERS = [
+      ["facetime", "mail", "Social"], ["contacts", "mail"],
+      ["findmy", "maps", "Travel"], ["weather", "maps"], ["wallet", "maps"], ["translate", "maps"],
+      ["music", "photos", "Media"], ["podcasts", "photos"], ["books", "photos"], ["news", "photos"], ["tv", "photos"],
+      ["calendar", "notes", "Productivity"], ["clock", "notes"], ["files", "notes"], ["reminders", "notes"], ["calculator", "notes"],
+      ["stocks", "notes"], ["voicememos", "notes"],
+    ];
+    await rec.record("agent-folders", async () => {
+      await rec.hold(250);
+      await rec.mark("input", ".dt-input");
+      await rec.typePrompt("now organize my home screen into folders");
+      await rec.hold(220);
+      await page.evaluate(() => { __demo.term.submit(); __demo.term.think("Thinking"); });
+      await rec.hold(600);
+      // the Home Screen gesture: a swipe up from the bottom edge
+      await rec.mark("home-line", ".dt-log");
+      await rec.tool("gesture", { name: "home" }, 'name: "home"', "ok");
+      rec.phone = { x: 195, y: 832 };
+      await page.evaluate(() => { __demo.cursor(195, 832); __demo.cursorShow(true); });
+      await rec.mark("phone", "#mirror-canvas");
+      await rec.hold(200);
+      await rec.phonePress(true);
+      await page.evaluate(() => __demo.closeApp());
+      await rec.phoneMove({ x: 195, y: 610 }, { min: 300, max: 300 });
+      await rec.phonePress(false);
+      await rec.hold(350);
+      await rec.tool("screenshot", null, "", "Home Screen: 24 apps, 4 in the dock");
+      await rec.hold(200);
+      await page.evaluate(() => __demo.term.say("I'll group them by what they're for: Social, Travel, Media and Productivity."));
+      await rec.hold(300);
+      const mail = await page.evaluate(() => __demo.at("mail"));
+      await rec.tool("long_press", { x: +(mail.x / 390).toFixed(2), y: +(mail.y / 844).toFixed(2), ms: 800 }, `${AT(mail)}, ms: 800`, "ok");
+      await rec.phoneMove(mail);
+      await page.evaluate(() => { __demo.press(true); __demo.holdRing(true); });
+      await rec.hold(530);
+      await page.evaluate(() => __demo.jiggle(true));
+      await rec.hold(270);
+      await page.evaluate(() => { __demo.press(false); __demo.holdRing(false); });
+      await rec.mark("jiggle");
+      await rec.hold(300);
+      for (let i = 0; i < FOLDERS.length; i++) {
+        const [app, target, name] = FOLDERS[i];
+        const a = await page.evaluate((id) => __demo.at(id), app);
+        const b = await page.evaluate((id) => __demo.at(id), target);
+        if (i === 1) await rec.mark("fast");
+        await rec.tool("swipe", { x1: +(a.x / 390).toFixed(2), y1: +(a.y / 844).toFixed(2), x2: +(b.x / 390).toFixed(2), y2: +(b.y / 844).toFixed(2), ms: 600 },
+          `x1: ${(a.x / 390).toFixed(2)}, y1: ${(a.y / 844).toFixed(2)}, x2: ${(b.x / 390).toFixed(2)}, y2: ${(b.y / 844).toFixed(2)}`, "ok");
+        await rec.phoneMove(a, { min: 200, max: 360 });
+        await rec.phonePress(true);
+        await page.evaluate((id) => __demo.lift(id), app);
+        rec.dragging = app;
+        await rec.hold(100);
+        await rec.phoneMove({ x: b.x + 3, y: b.y - 2 }, { min: 420, max: 600 });
+        await rec.hold(180);
+        rec.dragging = null;
+        await page.evaluate(([x, t, n]) => __demo.drop(x, t, n), [app, target, name || null]);
+        await rec.phonePress(false);
+        await rec.mark(`drop-${i}`);
+        await rec.hold(i < 2 ? 380 : 160);
+      }
+      await rec.mark("slow");
+      await rec.hold(250);
+      const done = { x: 340, y: 27 };
+      await rec.tool("tap", { x: +(done.x / 390).toFixed(2), y: +(done.y / 844).toFixed(2) }, AT(done), "ok");
+      await rec.phoneMove(done);
+      await rec.frame();
+      await rec.phonePress(true);
+      await rec.frame();
+      await rec.phonePress(false);
+      await page.evaluate(() => __demo.jiggle(false));
+      await rec.hold(300);
+      await rec.phoneMove({ x: 300, y: 560 }, { min: 400 });
+      await page.evaluate(() => __demo.cursorShow(false));
+      await rec.tool("screenshot", null, "", "Home Screen: Social, Media, Travel and Productivity, then Settings and Health");
+      await rec.mark("tidy", "#mirror-canvas");
+      await rec.hold(500);
+      await page.evaluate(() => { __demo.term.think(null); __demo.term.say("Done. 24 apps are now in four folders (Social, Travel, Media and Productivity), with Settings and Health left on the first page."); });
+      await rec.mark("answer", ".dt-log");
+      await rec.hold(1800);
     });
   } finally {
     console.log(errors.length ? `page errors: ${JSON.stringify(errors)}` : "no page errors");

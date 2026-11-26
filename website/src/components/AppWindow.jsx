@@ -1,5 +1,5 @@
 // A Windows-style window frame around recordings and screenshots of the app.
-export default function AppWindow({ title = "Location Spoofer", children, className = "", style }) {
+export default function AppWindow({ title = "iDevBench", children, className = "", style }) {
   return (
     <figure className={`app-window ${className}`} style={style}>
       <div className="aw-bar" aria-hidden="true">

@@ -10,10 +10,21 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-pub const REPO: &str = "YK3D/iPhone-location-spoofer";
+pub const REPO: &str = "YK3D/iDevBench";
 pub const TAG_PREFIX: &str = "standalone-v";
-pub const ASSET: &str = "LocationSpooferStandalone.exe";
+pub const ASSET: &str = "iDevBench.exe";
+/// The name releases used before iDevBench; older releases have only this one.
+const LEGACY_ASSET: &str = "LocationSpooferStandalone.exe";
 const ALLOWED_HOSTS: [&str; 3] = ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"];
+
+/// The exe and checksum URLs of a release: the current name, else the name from before the rename.
+fn release_exe(rel: &Value) -> Option<(String, String)> {
+    let asset = |name: &str| {
+        rel["assets"].as_array().into_iter().flatten().find(|a| a["name"] == name).and_then(|a| a["browser_download_url"].as_str().map(String::from))
+    };
+    let pair = |name: &str| Some((asset(name)?, asset(&format!("{name}.sha256"))?));
+    pair(ASSET).or_else(|| pair(LEGACY_ASSET))
+}
 
 pub fn current_version() -> &'static str {
     option_env!("SPOOFER_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
@@ -64,7 +75,7 @@ impl Updater {
     }
 
     fn sibling(&self, suffix: &str) -> PathBuf {
-        let stem = self.exe.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "LocationSpooferStandalone".into());
+        let stem = self.exe.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "iDevBench".into());
         self.exe.with_file_name(format!("{stem}{suffix}"))
     }
     fn staged(&self) -> PathBuf {
@@ -178,10 +189,7 @@ impl Updater {
             self.set(|s| s.state = "ready".into());
             return Ok(());
         }
-        let asset = |name: &str| {
-            rel["assets"].as_array().into_iter().flatten().find(|a| a["name"] == name).and_then(|a| a["browser_download_url"].as_str().map(String::from))
-        };
-        let (exe_url, sum_url) = (asset(ASSET).ok_or("Release has no exe")?, asset(&format!("{ASSET}.sha256")).ok_or("Release has no checksum")?);
+        let (exe_url, sum_url) = release_exe(&rel).ok_or("Release has no exe and checksum file")?;
         for u in [&exe_url, &sum_url] {
             check_host(u)?;
         }
@@ -278,6 +286,16 @@ fn check_host(u: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_the_exe_under_its_new_or_old_name() {
+        let rel = |names: &[&str]| json!({"assets": names.iter().map(|n| json!({"name": n, "browser_download_url": format!("https://github.com/x/{n}")})).collect::<Vec<_>>()});
+        let both = rel(&["LocationSpooferStandalone.exe", "LocationSpooferStandalone.exe.sha256", "iDevBench.exe", "iDevBench.exe.sha256"]);
+        assert_eq!(release_exe(&both).unwrap().0, "https://github.com/x/iDevBench.exe");
+        let old = rel(&["LocationSpooferStandalone.exe", "LocationSpooferStandalone.exe.sha256"]);
+        assert_eq!(release_exe(&old).unwrap().1, "https://github.com/x/LocationSpooferStandalone.exe.sha256");
+        assert!(release_exe(&rel(&["iDevBench.exe"])).is_none());
+    }
     #[test]
     fn versions() {
         assert!(is_newer("standalone-v0.2.5", "0.1.9"));

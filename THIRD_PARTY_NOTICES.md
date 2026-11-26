@@ -6,10 +6,12 @@ iDevBench (formerly Location Spoofer) is built on open-source software and publi
 
 | Part | Licence |
 |---|---|
-| Standalone app (`standalone/`), shared interface (`ui/`), icon artwork (`assets/`), website (`website/`), documentation | Location Spoofer License, © YK3D, all rights reserved (source-available; reuse needs written permission and credit). See [LICENSE](LICENSE) |
-| Browser version (`browser/`) and the `LocationSpooferBrowser.exe` build | GNU GPL v3 or later with additional attribution terms. See [browser/LICENSE](browser/LICENSE) and [browser/NOTICE](browser/NOTICE) |
+| Standalone app (`standalone/`), shared interface (`ui/`), icon artwork (`assets/`), website (`website/`), Claude Code plugin (`plugins/`), documentation | MIT License, © YK3D. See [LICENSE](LICENSE) |
+| Browser version (`browser/`) and the `iDevBenchBrowser.exe` build | GNU GPL v3 or later with additional attribution terms. See [browser/LICENSE](browser/LICENSE) and [browser/NOTICE](browser/NOTICE) |
 
 The licences below belong to the third-party components and are not changed by this project's licence.
+
+The AI app logos in the README (`docs/logos/`) are from [LobeHub Icons](https://github.com/lobehub/lobe-icons) 1.106.0 (MIT); the light-on-dark copies only change the fill colour. The logos are trademarks of their owners and are shown only to say which apps work with iDevBench.
 
 ## Included in both editions
 
@@ -20,19 +22,20 @@ The licences below belong to the third-party components and are not changed by t
 | [MapLibre GL Leaflet](https://github.com/maplibre/maplibre-gl-leaflet) 0.1.4 (`ui/vendor/maplibre`) | Shows the MapLibre map inside Leaflet | ISC, © MapLibre contributors. See `ui/vendor/maplibre/LICENSE-maplibre-gl-leaflet.txt` |
 | Marine network from [searoute](https://github.com/genthalili/searoute-py) (`standalone/data/marnet_searoute.geojson`; bundled with the `searoute` package in the browser version) | Sea-lane routing | Apache-2.0 (searoute). The network derives from Eurostat's [SeaRoute](https://github.com/eurostat/searoute) (EUPL-1.2) |
 
-## Standalone app (`LocationSpooferStandalone.exe`)
+## Standalone app (`iDevBench.exe`)
 
 | Component | Use | Licence |
 |---|---|---|
 | [idevice](https://github.com/jkcoxson/idevice), [jktcp](https://crates.io/crates/jktcp) | iPhone communication (usbmuxd, lockdown, CoreDevice tunnel, DVT, screen streaming and touch input) | MIT |
 | [Fraunhofer FDK AAC](https://github.com/mstorsjo/fdk-aac) through [fdk-aac-rs](https://github.com/haileys/fdk-aac-rs) | Plays the iPhone's sound while mirroring (AAC-ELD decoding) | FDK AAC licence, full text in [docs/licenses/fdk-aac.txt](docs/licenses/fdk-aac.txt) (the Rust bindings are MIT). Included unmodified; its complete source code is available free of charge from [crates.io](https://crates.io/crates/fdk-aac-sys/0.5.0) and [GitHub](https://github.com/mstorsjo/fdk-aac). The licence grants no patent rights |
 | [wry](https://github.com/tauri-apps/wry), [tao](https://github.com/tauri-apps/tao) | Native window and Microsoft WebView2 | Apache-2.0 OR MIT |
+| [rfd](https://github.com/PolyMeilex/rfd) | The folder picker (Settings › Mirroring › Browse) | MIT |
 | [axum](https://github.com/tokio-rs/axum), [tokio](https://tokio.rs/), [reqwest](https://github.com/seanmonstar/reqwest), [rustls](https://github.com/rustls/rustls), [ring](https://github.com/briansmith/ring) | Local server, networking, TLS | MIT / Apache-2.0 / ISC-style (ring) |
 | [cssparser](https://github.com/servo/rust-cssparser), [selectors](https://github.com/servo/stylo), [dtoa-short](https://github.com/upsuper/dtoa-short), [option-ext](https://github.com/soc/option-ext) | Used by the window and settings-folder libraries | MPL-2.0. Included unmodified; their source code is available from [crates.io](https://crates.io/) at the versions listed in `standalone/Cargo.lock` |
 | [serde](https://serde.rs/), [roxmltree](https://github.com/RazrFalcon/roxmltree), [chrono](https://github.com/chronotope/chrono), [plist](https://github.com/ebarnard/rust-plist), [png](https://github.com/image-rs/image-png) and the other crates listed in `standalone/Cargo.lock` | Parsing, data formats | MIT and/or Apache-2.0 (each crate's own licence applies) |
 | Microsoft Edge WebView2 Runtime | Renders the interface; part of Windows, not redistributed | Microsoft software licence terms |
 
-## Browser version (`LocationSpooferBrowser.exe`)
+## Browser version (`iDevBenchBrowser.exe`)
 
 The exe bundles a Python runtime and these packages, with their dependencies, via PyInstaller:
 

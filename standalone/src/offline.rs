@@ -129,9 +129,10 @@ pub fn cache_key(path: &str) -> Option<(String, Kind)> {
     }
     let parts: Vec<&str> = path.split('/').collect();
     match parts.as_slice() {
-        // planet/<version>/z/x/y.pbf: kept without the weekly version, so areas survive updates
-        ["planet", _ver, z, x, y] if y.ends_with(".pbf") => Some((format!("{TILE_PREFIX}{z}/{x}/{y}"), Kind::Tile)),
-        ["planet"] => Some(("planet.json".into(), Kind::Fresh)),
+        // planet/<version>/z/x/y.pbf: kept without the weekly version, so areas survive updates.
+        // OpenFreeMap's styles name "backup_planet" instead while it rebuilds the map: the same tiles.
+        ["planet" | "backup_planet", _ver, z, x, y] if y.ends_with(".pbf") => Some((format!("{TILE_PREFIX}{z}/{x}/{y}"), Kind::Tile)),
+        [p @ ("planet" | "backup_planet")] => Some((format!("{p}.json"), Kind::Fresh)),
         ["styles", _] => Some((format!("{path}.json"), Kind::Fresh)),
         ["natural_earth", ..] => Some((path.into(), Kind::Tile)),
         ["sprites", ..] | ["fonts", ..] => Some((path.into(), Kind::Static)),
@@ -187,7 +188,7 @@ pub struct DownloadIn {
 impl Offline {
     pub fn new(data_dir: &Path) -> Arc<Self> {
         let http = reqwest::Client::builder()
-            .user_agent(format!("iDevBench/{} (+https://github.com/YK3D/iPhone-location-spoofer)", crate::updater::current_version()))
+            .user_agent(format!("iDevBench/{} (+https://github.com/YK3D/iDevBench)", crate::updater::current_version()))
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .expect("http client");
@@ -538,6 +539,8 @@ mod tests {
     fn cache_keys() {
         assert_eq!(cache_key("planet/20261101_080013_pt/14/8186/5448.pbf"), Some(("planet-tiles/14/8186/5448.pbf".into(), Kind::Tile)));
         assert_eq!(cache_key("planet"), Some(("planet.json".into(), Kind::Fresh)));
+        assert_eq!(cache_key("backup_planet/20261122_124456_pt/14/8186/5448.pbf"), Some(("planet-tiles/14/8186/5448.pbf".into(), Kind::Tile)));
+        assert_eq!(cache_key("backup_planet"), Some(("backup_planet.json".into(), Kind::Fresh)));
         assert_eq!(cache_key("styles/dark"), Some(("styles/dark.json".into(), Kind::Fresh)));
         assert_eq!(cache_key("fonts/Noto%20Sans%20Regular/0-255.pbf").unwrap().1, Kind::Static);
         assert_eq!(cache_key("sprites/ofm_f384/ofm@2x.png").unwrap().1, Kind::Static);

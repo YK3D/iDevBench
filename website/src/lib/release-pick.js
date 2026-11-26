@@ -1,13 +1,15 @@
 // Shared by the browser, the /api/releases function and the build script: reduce GitHub's release list
 // to the latest stable release of each edition. Pure, no imports.
-export const REPO = "YK3D/iPhone-location-spoofer";
+export const REPO = "YK3D/iDevBench";
 export const RELEASES_API = `https://api.github.com/repos/${REPO}/releases?per_page=30`;
 
 function pick(list, prefix) {
   const rel = list.find((r) => !r.prerelease && !r.draft && typeof r.tag_name === "string" && r.tag_name.startsWith(prefix));
   if (!rel) return null;
-  const exe = (rel.assets || []).find((a) => a.name.endsWith(".exe"));
-  const sha = (rel.assets || []).find((a) => a.name.endsWith(".sha256"));
+  // releases carry the app under its new name (iDevBench*.exe) and its old one, for old copies' updates
+  const assets = rel.assets || [];
+  const exe = assets.find((a) => /^iDevBench.*\.exe$/.test(a.name)) || assets.find((a) => a.name.endsWith(".exe"));
+  const sha = exe && assets.find((a) => a.name === `${exe.name}.sha256`);
   return {
     version: rel.tag_name.slice(prefix.length),
     tag: rel.tag_name,

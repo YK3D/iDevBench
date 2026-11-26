@@ -9,8 +9,8 @@ export default function Footer() {
           <div className="foot-brand">
             <img src="/icon-64.png" alt="" width="36" height="36" />
             <div>
-              <strong>Location Spoofer</strong>
-              <p>Set your iPhone's GPS location from Windows over USB.</p>
+              <strong>iDevBench</strong>
+              <p>A Windows workbench for your iPhone: its GPS location, its screen, and AI agents.</p>
             </div>
           </div>
           <nav className="foot-links" aria-label="Project">
@@ -26,8 +26,8 @@ export default function Footer() {
         <div className="foot-notes">
           <p><b>Use it responsibly.</b> Location simulation is meant for testing apps, demos and privacy. Many apps forbid fake locations and may suspend your account.</p>
           <p>This site sets no cookies and loads no analytics. The demo map uses <a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> (© OpenMapTiles, © OpenStreetMap contributors) and routes from the <a href="https://routing.openstreetmap.de/about.html" target="_blank" rel="noreferrer">FOSSGIS</a> OSRM servers; version numbers come from GitHub.</p>
-          <p>Location Spoofer is free to download and use, but it is not open source. Location Spoofer is an independent project and is not affiliated with, endorsed by or sponsored by Apple Inc. or Google LLC. iPhone and iPad are trademarks of Apple Inc.; Google Maps is a trademark of Google LLC.</p>
-          <p className="mono">© {year} YK3D. All rights reserved.</p>
+          <p>iDevBench (previously called Location Spoofer) is free and open source: MIT License, and GPL-3.0-or-later for the browser edition. It is an independent project and is not affiliated with, endorsed by or sponsored by Apple Inc. or Google LLC. iPhone and iPad are trademarks of Apple Inc.; Google Maps is a trademark of Google LLC.</p>
+          <p className="mono">© {year} YK3D · MIT License</p>
         </div>
       </div>
     </footer>
